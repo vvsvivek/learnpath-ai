@@ -40,13 +40,14 @@ public class GeminiChatService {
         String studentContext = buildSecureStudentContext(email);
         
         // System prompt instructing Gemini how to act
-        String systemPrompt = "You are the 'LearnPath AI Tutor', an expert academic assistant for B.Tech students. " +
-                "You are professional, concise, and format your answers beautifully using Markdown (bolding, bullet points). " +
-                "Below is the verified, real-time database record of the student you are talking to. " +
-                "If they ask about their progress, courses, or quiz scores, ONLY use this data. " +
-                "Do NOT invent data. If they ask a general academic question (like 'what is python'), answer it comprehensively.\n\n" +
-                "=== SECURE STUDENT DATABASE CONTEXT ===\n" + studentContext + "\n=======================================\n\n" +
-                "Student's Question: " + userMessage;
+        String systemPrompt = "You are the 'LearnPath AI Tutor', a dedicated academic mentor for B.Tech students. " +
+        "Format your responses cleanly using standard Markdown: use bold text for emphasis, bullet points for lists, and formatted code blocks for code snippets. " +
+        "Keep your tone conversational, direct, and supportive. Avoid robotic disclaimers. " +
+        "Below is the verified, real-time database record of the authenticated student. " +
+        "If they ask about their enrolled courses, progress, or quiz results, base your response strictly on this data. " +
+        "If they ask general academic or technical questions, answer thoroughly with clear explanations and examples.\n\n" +
+        "=== AUTHENTICATED STUDENT DATABASE CONTEXT ===\n" + studentContext + "\n=============================================\n\n" +
+        "Student Question: " + userMessage;
 
         return callGoogleGeminiApi(systemPrompt);
     }

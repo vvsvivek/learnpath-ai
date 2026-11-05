@@ -1,9 +1,10 @@
+package com.learnpath.backend.service;
+
 import org.springframework.stereotype.Service;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 @Service
 public class ResendMailService {
@@ -13,24 +14,25 @@ public class ResendMailService {
     public void sendOtpEmail(String recipientEmail, String otpCode) {
         try {
             String jsonPayload = String.format("{\"email\":\"%s\",\"otp\":\"%s\"}", recipientEmail, otpCode);
-
-            HttpClient client = HttpClient.newBuilder()
-                    .followRedirects(HttpClient.Redirect.ALWAYS)
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .build();
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(SCRIPT_URL))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             
-            if (response.statusCode() == 200) {
+            URL url = new URL(SCRIPT_URL);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json; utf-8");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setDoOutput(true);
+            conn.setInstanceFollowRedirects(true);
+
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = jsonPayload.getBytes(StandardCharsets.UTF_8);
+                os.write(input, 0, input.length);
+            }
+
+            int responseCode = conn.getResponseCode();
+            if (responseCode >= 200 && responseCode < 300) {
                 System.out.println("OTP email dispatched via Google Apps Script to: " + recipientEmail);
             } else {
-                System.err.println("Failed to send email via script. Status code: " + response.statusCode());
+                System.err.println("Failed to send email. Response code: " + responseCode);
             }
         } catch (Exception e) {
             System.err.println("Error sending email: " + e.getMessage());

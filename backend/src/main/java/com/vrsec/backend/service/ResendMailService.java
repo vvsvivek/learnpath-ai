@@ -1,4 +1,4 @@
-package com.learnpath.backend.service;
+package com.vrsec.backend.service;
 
 import org.springframework.stereotype.Service;
 import java.io.OutputStream;

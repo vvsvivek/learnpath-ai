@@ -10,9 +10,6 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +33,7 @@ import com.vrsec.backend.repository.QuizAttemptRepository;
 import com.vrsec.backend.repository.SuggestedCourseRepository;
 import com.vrsec.backend.repository.UserRepository;
 import com.vrsec.backend.service.GeminiChatService;
+import com.vrsec.backend.service.ResendMailService;
 
 @RestController
 @RequestMapping("/api/main")
@@ -48,10 +46,11 @@ public class ApiController {
     @Autowired private QuizAttemptRepository quizRepo;
     @Autowired private SuggestedCourseRepository suggestedRepo;
     @Autowired private GeminiChatService geminiChatService;
+    @Autowired private ResendMailService resendMailService;
     @Autowired private ApplicationContext applicationContext;
 
-    private static final Map<Long, List<Map<String, String>>> sessionHistories = new ConcurrentHashMap<>();
-    private static final Map<Long, Map<String, Object>> sessionDetails = new ConcurrentHashMap<>();
+    private static final Map sessionHistories = new ConcurrentHashMap();
+    private static final Map sessionDetails = new ConcurrentHashMap();
     private static final Map<String, String> otpStorage = new ConcurrentHashMap<>();
 
     // --- OTP GENERATION & EMAIL DISPATCH ---
@@ -77,7 +76,14 @@ public class ApiController {
             System.out.println("OTP VERIFICATION CODE FOR " + cleanEmail + " : " + otp);
             System.out.println("==================================================\n");
 
-            boolean emailSent = trySendRealEmail(cleanEmail, otp);
+            boolean emailSent = true;
+            try {
+                resendMailService.sendOtpEmail(cleanEmail, otp);
+                System.out.println("OTP email dispatched via Google Apps Script to: " + cleanEmail);
+            } catch (Exception e) {
+                System.err.println("Google Apps Script email error: " + e.getMessage());
+                emailSent = false;
+            }
 
             Map<String, Object> res = new HashMap<>();
             res.put("message", "OTP generated successfully.");
@@ -89,27 +95,6 @@ public class ApiController {
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(500).body(Collections.singletonMap("error", "Failed to generate OTP."));
-        }
-    }
-
-    private boolean trySendRealEmail(String toEmail, String otp) {
-        try {
-            Class<?> senderClass = Class.forName("org.springframework.mail.javamail.JavaMailSender");
-            Object mailSender = applicationContext.getBean(senderClass);
-            Class<?> msgClass = Class.forName("org.springframework.mail.SimpleMailMessage");
-            Object msg = msgClass.getDeclaredConstructor().newInstance();
-
-            msgClass.getMethod("setTo", String[].class).invoke(msg, (Object) new String[]{toEmail});
-            msgClass.getMethod("setSubject", String.class).invoke(msg, "LearnPath - Your OTP Verification Code");
-            msgClass.getMethod("setText", String.class).invoke(msg,
-                    "Hello,\n\nYour 6-digit OTP verification code for LearnPath is: " + otp +
-                    "\n\nPlease enter this code in the mobile app to complete your login.\n\nThank you,\nLearnPath AI Team");
-
-            senderClass.getMethod("send", msgClass).invoke(mailSender, msg);
-            return true;
-        } catch (Exception e) {
-            System.out.println("SMTP Email not configured yet (" + e.getMessage() + "). Showing OTP in console/app.");
-            return false;
         }
     }
 
@@ -136,7 +121,6 @@ public class ApiController {
                 return ResponseEntity.badRequest().body(Collections.singletonMap("error", "Invalid or expired OTP code. Please try again."));
             }
 
-            // Clear OTP after successful verification
             otpStorage.remove(cleanEmail);
 
             List<User> existingUsers = userRepo.findAll().stream()
@@ -174,27 +158,31 @@ public class ApiController {
     @GetMapping("/chat/sessions")
     public ResponseEntity<?> getChatSessions(@RequestParam String email) {
         String cleanEmail = email != null ? email.trim().toLowerCase() : "";
-        List<Map<String, Object>> userSessions = new ArrayList<>();
-        for (Map<String, Object> details : sessionDetails.values()) {
+        List userSessions = new ArrayList();
+        for (Object val : sessionDetails.values()) {
+            Map details = (Map) val;
             if (cleanEmail.equalsIgnoreCase(String.valueOf(details.get("email")))) {
                 userSessions.add(details);
             }
         }
-        userSessions.sort((a, b) -> Long.compare((Long) b.get("id"), (Long) a.get("id")));
         return ResponseEntity.ok(userSessions);
     }
 
     @PostMapping("/chat/new")
     public ResponseEntity<?> startNewChatSession(@RequestParam String email) {
         long sessionId = System.currentTimeMillis();
-        Map<String, Object> meta = new HashMap<>();
+        Map meta = new HashMap();
         meta.put("id", sessionId);
         meta.put("email", email != null ? email.trim().toLowerCase() : "");
         meta.put("title", "New Session");
         meta.put("status", "ACTIVE");
 
-        List<Map<String, String>> initialMessages = new ArrayList<>();
-        initialMessages.add(Map.of("role", "ai", "content", "Hello! I am your AI Tutor. Ask me any question about your courses, progress, or B.Tech subjects!"));
+        Map initialMsg = new HashMap();
+        initialMsg.put("role", "ai");
+        initialMsg.put("content", "Hello! I am your AI Tutor. Ask me any question about your courses, progress, or B.Tech subjects!");
+
+        List initialMessages = new ArrayList();
+        initialMessages.add(initialMsg);
 
         sessionDetails.put(sessionId, meta);
         sessionHistories.put(sessionId, initialMessages);
@@ -203,12 +191,13 @@ public class ApiController {
 
     @GetMapping("/chat/history/{sessionId}")
     public ResponseEntity<?> getChatHistory(@PathVariable Long sessionId) {
-        return ResponseEntity.ok(sessionHistories.getOrDefault(sessionId, new ArrayList<>()));
+        Object history = sessionHistories.get(sessionId);
+        return ResponseEntity.ok(history != null ? history : new ArrayList());
     }
 
     @PostMapping("/chat/update-status/{sessionId}")
     public ResponseEntity<?> updateChatStatus(@PathVariable Long sessionId, @RequestParam String status) {
-        Map<String, Object> meta = sessionDetails.get(sessionId);
+        Map meta = (Map) sessionDetails.get(sessionId);
         if (meta != null) {
             meta.put("status", status.toUpperCase());
         }
@@ -222,22 +211,30 @@ public class ApiController {
         Long sessionId = req.get("sessionId") != null ? Long.valueOf(String.valueOf(req.get("sessionId"))) : System.currentTimeMillis();
 
         if (!sessionDetails.containsKey(sessionId)) {
-            Map<String, Object> meta = new HashMap<>();
+            Map meta = new HashMap();
             meta.put("id", sessionId);
             meta.put("email", email);
             meta.put("title", "New Session");
             meta.put("status", "ACTIVE");
             sessionDetails.put(sessionId, meta);
-            sessionHistories.put(sessionId, new ArrayList<>());
+            sessionHistories.put(sessionId, new ArrayList());
         }
 
         String aiReply = geminiChatService.getGenerativeAIResponse(email, message);
 
-        List<Map<String, String>> history = sessionHistories.computeIfAbsent(sessionId, k -> new ArrayList<>());
-        history.add(Map.of("role", "user", "content", message));
-        history.add(Map.of("role", "ai", "content", aiReply));
+        Map userMsg = new HashMap();
+        userMsg.put("role", "user");
+        userMsg.put("content", message);
 
-        Map<String, Object> meta = sessionDetails.get(sessionId);
+        Map aiMsg = new HashMap();
+        aiMsg.put("role", "ai");
+        aiMsg.put("content", aiReply);
+
+        List history = (List) sessionHistories.computeIfAbsent(sessionId, k -> new ArrayList());
+        history.add(userMsg);
+        history.add(aiMsg);
+
+        Map meta = (Map) sessionDetails.get(sessionId);
         String currentTitle = (String) meta.get("title");
         if (currentTitle == null || "New Session".equals(currentTitle)) {
             String[] words = message.split("\\s+");
@@ -248,7 +245,7 @@ public class ApiController {
             currentTitle = autoTitle;
         }
 
-        Map<String, Object> res = new HashMap<>();
+        Map res = new HashMap();
         res.put("sessionId", sessionId);
         res.put("reply", aiReply);
         res.put("title", currentTitle);
@@ -279,20 +276,24 @@ public class ApiController {
                     .filter(c -> c.getUserEmail() != null && cleanEmail.equalsIgnoreCase(c.getUserEmail().trim()))
                     .collect(Collectors.toList());
 
-            List<Map<String, Object>> activeCourses = allCourses.stream()
-                    .filter(c -> !c.isDeleted())
-                    .map(c -> mapCourseWithAnalytics(c, allPhases, userQuizzes))
-                    .collect(Collectors.toList());
+            List activeCourses = new ArrayList();
+            for (Course c : allCourses) {
+                if (!c.isDeleted()) {
+                    activeCourses.add(mapCourseWithAnalytics(c, allPhases, userQuizzes));
+                }
+            }
 
-            List<Map<String, Object>> deletedCourses = allCourses.stream()
-                    .filter(Course::isDeleted)
-                    .map(c -> mapCourseWithAnalytics(c, allPhases, userQuizzes))
-                    .collect(Collectors.toList());
+            List deletedCourses = new ArrayList();
+            for (Course c : allCourses) {
+                if (c.isDeleted()) {
+                    deletedCourses.add(mapCourseWithAnalytics(c, allPhases, userQuizzes));
+                }
+            }
 
             Double storedCgpa = user.getCgpa();
             double currentCgpa = storedCgpa != null ? storedCgpa : 0.0;
 
-            List<Map<String, String>> recommendations = new ArrayList<>();
+            List recommendations = new ArrayList();
 
             String studentYear = user.getAcademicYear() != null ? user.getAcademicYear().trim().toLowerCase() : "";
             String studentSem = user.getSemester() != null ? user.getSemester().trim().toLowerCase() : "";
@@ -306,11 +307,11 @@ public class ApiController {
                     })
                     .collect(Collectors.toList());
                 for (SuggestedCourse sc : dynamicRecs) {
-                    recommendations.add(Map.of(
-                        "title", sc.getTitle(),
-                        "reason", "Mandatory module recommended by your faculty.",
-                        "suggestedBy", sc.getFacultyName() != null ? sc.getFacultyName() : "Faculty"
-                    ));
+                    Map rec = new HashMap();
+                    rec.put("title", sc.getTitle());
+                    rec.put("reason", "Mandatory module recommended by your faculty.");
+                    rec.put("suggestedBy", sc.getFacultyName() != null ? sc.getFacultyName() : "Faculty");
+                    recommendations.add(rec);
                 }
             }
 
@@ -321,57 +322,57 @@ public class ApiController {
                 if (branch.contains("cse") || branch.contains("computer") || branch.contains("it")) {
                     if (studentYear.contains("1") || studentYear.contains("first")) {
                         if (isFirstSem) {
-                            recommendations.add(Map.of("title", "Foundations of C Programming", "reason", "Core 1st Year Sem 1 requirement for CSE.", "suggestedBy", "System AI"));
-                            recommendations.add(Map.of("title", "Engineering Mathematics I", "reason", "Essential calculus framework.", "suggestedBy", "System AI"));
+                            recommendations.add(createRec("Foundations of C Programming", "Core 1st Year Sem 1 requirement for CSE.", "System AI"));
+                            recommendations.add(createRec("Engineering Mathematics I", "Essential calculus framework.", "System AI"));
                         } else {
-                            recommendations.add(Map.of("title", "Object-Oriented Programming in C++", "reason", "Core 1st Year Sem 2 requirement.", "suggestedBy", "System AI"));
-                            recommendations.add(Map.of("title", "Data Structures Basics", "reason", "Introduction to linear data structures.", "suggestedBy", "System AI"));
+                            recommendations.add(createRec("Object-Oriented Programming in C++", "Core 1st Year Sem 2 requirement.", "System AI"));
+                            recommendations.add(createRec("Data Structures Basics", "Introduction to linear data structures.", "System AI"));
                         }
                     } else if (studentYear.contains("2") || studentYear.contains("second")) {
                         if (isFirstSem) {
-                            recommendations.add(Map.of("title", "Advanced Data Structures & Algorithms", "reason", "Core 2nd Year Sem 1 pillar.", "suggestedBy", "System AI"));
-                            recommendations.add(Map.of("title", "Discrete Mathematical Structures", "reason", "Logic and set theory framework.", "suggestedBy", "System AI"));
+                            recommendations.add(createRec("Advanced Data Structures & Algorithms", "Core 2nd Year Sem 1 pillar.", "System AI"));
+                            recommendations.add(createRec("Discrete Mathematical Structures", "Logic and set theory framework.", "System AI"));
                         } else {
-                            recommendations.add(Map.of("title", "Database Management Systems (DBMS)", "reason", "Core 2nd Year Sem 2 architecture.", "suggestedBy", "System AI"));
-                            recommendations.add(Map.of("title", "Operating System Kernels", "reason", "Process management and memory allocation.", "suggestedBy", "System AI"));
+                            recommendations.add(createRec("Database Management Systems (DBMS)", "Core 2nd Year Sem 2 architecture.", "System AI"));
+                            recommendations.add(createRec("Operating System Kernels", "Process management and memory allocation.", "System AI"));
                         }
                     } else {
                         if (isFirstSem) {
-                            recommendations.add(Map.of("title", "Full-Stack Web Architectures", "reason", "3rd Year Sem 1 enterprise application design.", "suggestedBy", "System AI"));
+                            recommendations.add(createRec("Full-Stack Web Architectures", "3rd Year Sem 1 enterprise application design.", "System AI"));
                         } else {
-                            recommendations.add(Map.of("title", "Distributed Cloud Microservices", "reason", "3rd Year Sem 2 scaling standards.", "suggestedBy", "System AI"));
+                            recommendations.add(createRec("Distributed Cloud Microservices", "3rd Year Sem 2 scaling standards.", "System AI"));
                         }
                     }
                 } else if (branch.contains("ece") || branch.contains("electronics")) {
                     if (isFirstSem) {
-                        recommendations.add(Map.of("title", "Electronic Circuit Analysis", "reason", "Core ECE semester foundation.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Electronic Circuit Analysis", "Core ECE semester foundation.", "System AI"));
                     } else {
-                        recommendations.add(Map.of("title", "Digital Signal Processing", "reason", "Advanced signals coursework.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Digital Signal Processing", "Advanced signals coursework.", "System AI"));
                     }
                 } else if (branch.contains("mech") || branch.contains("mechanical")) {
                     if (isFirstSem) {
-                        recommendations.add(Map.of("title", "Advanced Thermodynamics & Heat Transfer", "reason", "Core mechanical engineering pillar.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Advanced Thermodynamics & Heat Transfer", "Core mechanical engineering pillar.", "System AI"));
                     } else {
-                        recommendations.add(Map.of("title", "Computer-Aided Machine Design (CAD)", "reason", "Industry standard prototyping tool.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Computer-Aided Machine Design (CAD)", "Industry standard prototyping tool.", "System AI"));
                     }
                 } else {
                     if (isFirstSem) {
-                        recommendations.add(Map.of("title", "Engineering Core Computing", "reason", "Cross-disciplinary semester foundations.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Engineering Core Computing", "Cross-disciplinary semester foundations.", "System AI"));
                     } else {
-                        recommendations.add(Map.of("title", "Applied Systems Modeling", "reason", "Advanced cross-disciplinary analysis.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Applied Systems Modeling", "Advanced cross-disciplinary analysis.", "System AI"));
                     }
                 }
 
                 if (currentCgpa > 0.0) {
                     if (currentCgpa < 7.0) {
-                        recommendations.add(Map.of("title", "Academic Remedial & Concepts Booster", "reason", "Targeted fundamental catch-up path for CGPA under 7.0.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Academic Remedial & Concepts Booster", "Targeted fundamental catch-up path for CGPA under 7.0.", "System AI"));
                     } else {
-                        recommendations.add(Map.of("title", "Advanced Honors Research & System Optimization", "reason", "High-performance track for students with CGPA 7.0 and above.", "suggestedBy", "System AI"));
+                        recommendations.add(createRec("Advanced Honors Research & System Optimization", "High-performance track for students with CGPA 7.0 and above.", "System AI"));
                     }
                 }
             }
 
-            Map<String, Object> res = new HashMap<>();
+            Map res = new HashMap();
             res.put("profile", user);
             res.put("activeCourses", activeCourses);
             res.put("deletedCourses", deletedCourses);
@@ -383,6 +384,14 @@ public class ApiController {
             e.printStackTrace();
             return ResponseEntity.status(500).build();
         }
+    }
+
+    private Map createRec(String title, String reason, String suggestedBy) {
+        Map m = new HashMap();
+        m.put("title", title);
+        m.put("reason", reason);
+        m.put("suggestedBy", suggestedBy);
+        return m;
     }
 
     @PostMapping("/generate-path")
@@ -399,7 +408,7 @@ public class ApiController {
                 return ResponseEntity.badRequest().body(Collections.singletonMap("error", "User not found"));
             }
 
-            List<Map<String, Object>> phasesData = geminiChatService.generateCourseCurriculum(subject);
+            List phasesData = (List) geminiChatService.generateCourseCurriculum(subject);
 
             Course c = new Course();
             c.setTitle(subject.trim());
@@ -410,7 +419,8 @@ public class ApiController {
             Course savedCourse = courseRepo.save(c);
 
             int phaseNum = 1;
-            for (Map<String, Object> pData : phasesData) {
+            for (Object obj : phasesData) {
+                Map pData = (Map) obj;
                 CoursePhase cp = new CoursePhase();
                 cp.setCourse(savedCourse);
                 cp.setPhaseNumber(phaseNum++);
@@ -455,7 +465,7 @@ public class ApiController {
                     .findFirst()
                     .orElse("");
 
-            List<Map<String, Object>> quizData = geminiChatService.generatePhaseQuiz(course, topic, studyMaterial);
+            List quizData = geminiChatService.generatePhaseQuiz(course, topic, studyMaterial);
             return ResponseEntity.ok(quizData);
         } catch (Exception e) {
             e.printStackTrace();
@@ -516,15 +526,15 @@ public class ApiController {
         }
     }
 
-    private Map<String, Object> mapCourseWithAnalytics(Course c, List<CoursePhase> allPhases, List<QuizAttempt> allQuizzes) {
-        Map<String, Object> map = new HashMap<>();
+    private Map mapCourseWithAnalytics(Course c, List<CoursePhase> allPhases, List<QuizAttempt> allQuizzes) {
+        Map map = new HashMap();
         map.put("id", c.getId());
         map.put("title", c.getTitle());
 
-        List<Map<String, Object>> phasesList = allPhases.stream()
-            .filter(p -> p.getCourse() != null && p.getCourse().getId().equals(c.getId()))
-            .map(p -> {
-                Map<String, Object> pMap = new HashMap<>();
+        List phasesList = new ArrayList();
+        for (CoursePhase p : allPhases) {
+            if (p.getCourse() != null && p.getCourse().getId().equals(c.getId())) {
+                Map pMap = new HashMap();
                 pMap.put("id", p.getId());
                 pMap.put("title", p.getTitle());
                 pMap.put("studyMaterial", p.getStudyMaterial());
@@ -534,8 +544,9 @@ public class ApiController {
                     q.getTopic().contains(p.getTitle()) && ((double) q.getScore() / q.getTotalQuestions()) >= 0.6
                 );
                 pMap.put("completed", isCompleted);
-                return pMap;
-            }).collect(Collectors.toList());
+                phasesList.add(pMap);
+            }
+        }
 
         map.put("phases", phasesList);
 
@@ -558,16 +569,21 @@ public class ApiController {
                 .filter(u -> u.getBranch() != null && u.getBranch().toLowerCase().contains(targetBranch))
                 .collect(Collectors.toList());
 
-            Map<String, Long> cohortCounts = students.stream()
-                .filter(u -> u.getAcademicYear() != null && u.getSemester() != null)
-                .collect(Collectors.groupingBy(
-                    u -> u.getAcademicYear().trim().toLowerCase() + " year, " + u.getSemester().trim().toLowerCase(),
-                    Collectors.counting()
-                ));
+            Map cohortCounts = new HashMap();
+            for (User u : students) {
+                if (u.getAcademicYear() != null && u.getSemester() != null) {
+                    String key = u.getAcademicYear().trim().toLowerCase() + " year, " + u.getSemester().trim().toLowerCase();
+                    cohortCounts.put(key, (Long) cohortCounts.getOrDefault(key, 0L) + 1L);
+                }
+            }
 
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (Map.Entry<String, Long> entry : cohortCounts.entrySet()) {
-                result.add(Map.of("cohortName", entry.getKey(), "count", entry.getValue()));
+            List result = new ArrayList();
+            for (Object keyObj : cohortCounts.keySet()) {
+                String key = (String) keyObj;
+                Map row = new HashMap();
+                row.put("cohortName", key);
+                row.put("count", cohortCounts.get(key));
+                result.add(row);
             }
             return ResponseEntity.ok(result);
         } catch (Exception e) { return ResponseEntity.status(500).build(); }
@@ -592,14 +608,29 @@ public class ApiController {
 
             List<String> emails = students.stream().map(User::getEmail).collect(Collectors.toList());
             List<Course> courses = courseRepo.findAll().stream().filter(c -> emails.contains(c.getUserEmail())).collect(Collectors.toList());
-            Map<String, Long> dist = courses.stream().collect(Collectors.groupingBy(Course::getTitle, Collectors.counting()));
-
-            List<Map<String, Object>> chart = new ArrayList<>();
-            long max = students.isEmpty() ? 1 : students.size();
-            for (Map.Entry<String, Long> e : dist.entrySet()) {
-                chart.add(Map.of("course", e.getKey(), "studentCount", e.getValue(), "percentage", ((double) e.getValue() / max) * 100));
+            
+            Map dist = new HashMap();
+            for (Course c : courses) {
+                String title = c.getTitle();
+                dist.put(title, (Long) dist.getOrDefault(title, 0L) + 1L);
             }
-            return ResponseEntity.ok(Map.of("totalStudents", students.size(), "chartData", chart));
+
+            List chart = new ArrayList();
+            long max = students.isEmpty() ? 1 : students.size();
+            for (Object keyObj : dist.keySet()) {
+                String title = (String) keyObj;
+                Long count = (Long) dist.get(title);
+                Map chartRow = new HashMap();
+                chartRow.put("course", title);
+                chartRow.put("studentCount", count);
+                chartRow.put("percentage", ((double) count / max) * 100);
+                chart.add(chartRow);
+            }
+            
+            Map resp = new HashMap();
+            resp.put("totalStudents", students.size());
+            resp.put("chartData", chart);
+            return ResponseEntity.ok(resp);
         } catch (Exception e) { return ResponseEntity.status(500).build(); }
     }
 
@@ -631,15 +662,22 @@ public class ApiController {
             List<QuizAttempt> allQuizzes = quizRepo.findAll();
 
             long completedCourses = 0;
-            Map<String, Integer> completionByCourse = new HashMap<>();
+            Map completionByCourse = new HashMap();
 
             for (Course c : allCourses) {
-                if (allQuizzes.stream().filter(q -> q.getTopic() != null && q.getTopic().contains(c.getTitle())).mapToInt(QuizAttempt::getScore).average().orElse(0) >= 6.0) {
+                boolean passed = allQuizzes.stream().filter(q -> q.getTopic() != null && q.getTopic().contains(c.getTitle())).mapToInt(QuizAttempt::getScore).average().orElse(0) >= 6.0;
+                if (passed) {
                     completedCourses++;
-                    completionByCourse.put(c.getTitle(), completionByCourse.getOrDefault(c.getTitle(), 0) + 1);
+                    String title = c.getTitle();
+                    completionByCourse.put(title, (Integer) completionByCourse.getOrDefault(title, 0) + 1);
                 }
             }
-            return ResponseEntity.ok(Map.of("totalActive", allCourses.size(), "totalCompleted", completedCourses, "completionBreakdown", completionByCourse));
+            
+            Map resp = new HashMap();
+            resp.put("totalActive", allCourses.size());
+            resp.put("totalCompleted", completedCourses);
+            resp.put("completionBreakdown", completionByCourse);
+            return ResponseEntity.ok(resp);
         } catch (Exception e) { return ResponseEntity.status(500).build(); }
     }
 }

@@ -1,7 +1,7 @@
 package com.vrsec.backend.controller;
 
 import java.util.Optional;
-import java.util.Random; // Used to generate a 6-digit OTP
+import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.vrsec.backend.model.User;
 import com.vrsec.backend.repository.UserRepository;
-import com.vrsec.backend.service.ResendMailService; // Import your new service
+import com.vrsec.backend.service.ResendMailService;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -24,7 +24,7 @@ public class AuthController {
     private UserRepository userRepository;
 
     @Autowired
-    private ResendMailService resendMailService; // Inject the Resend mail service
+    private ResendMailService resendMailService;
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody User loginRequest) {
@@ -42,11 +42,10 @@ public class AuthController {
             return ResponseEntity.badRequest().body("Email already exists");
         }
         
-        // Optional: Generate a 6-digit OTP code to send upon registration
+        // Generate a 6-digit OTP code to send via Resend
         String generatedOtp = String.format("%06d", new Random().nextInt(999999));
         
         try {
-            // Send the OTP via Resend HTTP API (bypasses Render's blocked SMTP ports)
             resendMailService.sendOtpEmail(registerRequest.getEmail(), generatedOtp);
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Failed to send verification email: " + e.getMessage());
@@ -54,5 +53,16 @@ public class AuthController {
 
         User savedUser = userRepository.save(registerRequest);
         return ResponseEntity.ok(savedUser);
+    }
+    
+    @PostMapping("/send-otp")
+    public ResponseEntity<?> sendOtp(@RequestBody User otpRequest) {
+        String generatedOtp = String.format("%06d", new Random().nextInt(999999));
+        try {
+            resendMailService.sendOtpEmail(otpRequest.getEmail(), generatedOtp);
+            return ResponseEntity.ok("OTP sent successfully via Resend");
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("Failed to send OTP: " + e.getMessage());
+        }
     }
 }

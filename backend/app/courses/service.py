@@ -114,7 +114,9 @@ async def get_course_recommendations(
     profile = profile_res.data[0] if profile_res.data else {}
 
     branch = profile.get("branch", "Computer Science & Engineering")
-    semester = profile.get("semester", 4)
+    academic_year = profile.get("academic_year", 3)
+    semester = profile.get("semester", 6)
+    cgpa = profile.get("cgpa", 7.5)
     interests = profile.get("learning_interests", ["Artificial Intelligence", "Web Development"])
 
     # 3. Formulate Gemini prompt for structured JSON course recommendations
@@ -122,15 +124,22 @@ async def get_course_recommendations(
 You are an expert academic advisor for engineering undergraduate students.
 Based on the following student academic background, recommend 4 highly relevant courses:
 Branch: {branch}
-Semester: {semester}
+Academic Year: Year {academic_year}
+Semester: Semester {semester}
+CGPA: {cgpa} / 10.0
 Interests: {', '.join(interests) if isinstance(interests, list) else interests}
+
+Tailor the course difficulty and technical depth according to their CGPA and current semester:
+- For CGPA >= 8.5: Include advanced architectural, research, and distributed systems topics.
+- For CGPA < 7.0: Include strong foundational mastery and high-yield placement skill courses.
+- Ensure the recommendations directly match what a Year {academic_year}, Semester {semester} {branch} student needs for academic excellence and top-tier placements.
 
 Return a valid JSON array containing exactly 4 course objects with these keys:
 - course_title: string (e.g. "Distributed Systems & Cloud Architecture")
 - description: string (2-3 sentences overview)
 - category: string (e.g. "Cloud Computing", "AI/ML", "Cybersecurity", "Systems")
 - difficulty: string ("Beginner", "Intermediate", or "Advanced")
-- reason: string (why this matches their branch, semester, and interests)
+- reason: string (explicitly explaining why this matches their branch, semester {semester}, and CGPA of {cgpa})
 - match_score: float between 0.85 and 0.99
 """
 

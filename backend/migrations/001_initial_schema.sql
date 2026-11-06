@@ -21,7 +21,19 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================================
--- 3. Core Identity & User Tables
+-- 3. Legacy Prototype Table Cleanup (Safe Drop)
+-- ============================================================================
+DROP TABLE IF EXISTS suggested_course CASCADE;
+DROP TABLE IF EXISTS course_phase CASCADE;
+DROP TABLE IF EXISTS chat_message CASCADE;
+DROP TABLE IF EXISTS chat_session CASCADE;
+DROP TABLE IF EXISTS quiz_attempt CASCADE;
+DROP TABLE IF EXISTS learning_paths CASCADE;
+DROP TABLE IF EXISTS course CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
+-- ============================================================================
+-- 4. Core Identity & User Tables
 -- ============================================================================
 
 -- Table 1: users

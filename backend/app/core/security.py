@@ -137,3 +137,32 @@ def verify_faculty_email(email: str) -> bool:
             return True
 
     return False
+
+
+def verify_student_email(email: str) -> bool:
+    """Check if an email address is authorized for student privileges.
+
+    Students are strictly restricted to @vrsec.ac.in institutional emails.
+    """
+    clean_email = email.strip().lower()
+    student_domain = settings.STUDENT_INSTITUTIONAL_DOMAIN.strip().lower()
+    if not student_domain.startswith("@"):
+        student_domain = f"@{student_domain}"
+    return clean_email.endswith(student_domain)
+
+
+def get_role_for_email(email: str) -> str | None:
+    """Determine and assign user role strictly and automatically based on email domain.
+
+    Rules:
+    - Faculty: @siddhartha.ac.in or authorized special emails (e.g. vivekvaranasi99@gmail.com)
+    - Student: @vrsec.ac.in
+    - All other emails: None (unauthorized, access denied)
+    """
+    clean_email = email.strip().lower()
+    if verify_faculty_email(clean_email):
+        return "faculty"
+    if verify_student_email(clean_email):
+        return "student"
+    return None
+

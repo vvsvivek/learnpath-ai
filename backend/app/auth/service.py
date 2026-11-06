@@ -21,6 +21,7 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     generate_otp,
+    get_role_for_email,
     hash_otp,
     verify_faculty_email,
     verify_otp as verify_otp_hash,
@@ -48,16 +49,25 @@ async def request_otp(data: OTPRequestSchema, supabase: AsyncClient) -> MessageR
     """
     clean_email = data.email.strip().lower()
 
-    # Enforce faculty domain restrictions
-    if data.role == "faculty":
-        if not verify_faculty_email(clean_email):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=(
-                    f"Faculty registration is restricted to Siddhartha Academy domains "
-                    f"({', '.join(settings.FACULTY_ALLOWED_DOMAINS)}) and designated administrator accounts."
-                ),
-            )
+    # Determine and enforce role strictly from email domain
+    assigned_role = get_role_for_email(clean_email)
+    if not assigned_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Access restricted to authorized institutional accounts: "
+                "@vrsec.ac.in for Students, and @siddhartha.ac.in (or authorized faculty) for Faculty."
+            ),
+        )
+
+    # Prevent users from spoofing or selecting mismatched roles
+    if data.role and data.role != assigned_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Email domain corresponds to {assigned_role.capitalize()} role, not {data.role.capitalize()}.",
+        )
+
+    effective_role = assigned_role
 
     # Invalidate previous unused OTP records for this email
     try:
@@ -65,7 +75,7 @@ async def request_otp(data: OTPRequestSchema, supabase: AsyncClient) -> MessageR
             supabase.table(OTP_RECORDS_TABLE)
             .update({"is_used": True})
             .eq("email", clean_email)
-            .eq("role", data.role)
+            .eq("role", effective_role)
             .eq("is_used", False)
             .execute()
         )
@@ -82,7 +92,7 @@ async def request_otp(data: OTPRequestSchema, supabase: AsyncClient) -> MessageR
         insert_payload = {
             "email": clean_email,
             "otp_hash": hashed,
-            "role": data.role,
+            "role": effective_role,
             "purpose": "login",
             "attempts": 0,
             "is_used": False,
@@ -96,7 +106,7 @@ async def request_otp(data: OTPRequestSchema, supabase: AsyncClient) -> MessageR
         )
 
     # Dispatch email
-    purpose = f"{data.role.title()} Authentication"
+    purpose = f"{effective_role.title()} Authentication"
     email_dispatched = await send_otp_email(to_email=clean_email, otp=raw_otp, purpose=purpose)
     if not email_dispatched and settings.ENVIRONMENT == "production":
         raise HTTPException(
@@ -124,12 +134,28 @@ async def verify_otp(data: OTPVerifySchema, supabase: AsyncClient) -> TokenRespo
     """
     clean_email = data.email.strip().lower()
 
+    # Determine and enforce role strictly from email domain
+    assigned_role = get_role_for_email(clean_email)
+    if not assigned_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted to authorized institutional accounts: @vrsec.ac.in or @siddhartha.ac.in.",
+        )
+
+    if data.role and data.role != assigned_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Email domain corresponds to {assigned_role.capitalize()} role, not {data.role.capitalize()}.",
+        )
+
+    effective_role = assigned_role
+
     # Query latest active OTP record
     res = (
         await supabase.table(OTP_RECORDS_TABLE)
         .select("*")
         .eq("email", clean_email)
-        .eq("role", data.role)
+        .eq("role", effective_role)
         .eq("is_used", False)
         .order("created_at", desc=True)
         .limit(1)
@@ -196,7 +222,7 @@ async def verify_otp(data: OTPVerifySchema, supabase: AsyncClient) -> TokenRespo
             supabase.table(USERS_TABLE)
             .insert({
                 "email": clean_email,
-                "role": data.role,
+                "role": effective_role,
                 "is_active": True,
             })
             .execute()
@@ -206,7 +232,7 @@ async def verify_otp(data: OTPVerifySchema, supabase: AsyncClient) -> TokenRespo
 
     # Check if student/faculty profile is completed
     onboarding_completed = False
-    if data.role == "student":
+    if effective_role == "student":
         profile_res = await supabase.table(STUDENT_PROFILES_TABLE).select("id").eq("user_id", user_id).limit(1).execute()
         onboarding_completed = bool(profile_res.data)
     else:
@@ -217,7 +243,7 @@ async def verify_otp(data: OTPVerifySchema, supabase: AsyncClient) -> TokenRespo
     token_payload = {
         "sub": str(user_id),
         "email": clean_email,
-        "role": data.role,
+        "role": effective_role,
     }
     access_token = create_access_token(token_payload)
     refresh_token = create_refresh_token(token_payload)

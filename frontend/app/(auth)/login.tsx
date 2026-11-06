@@ -14,7 +14,7 @@ import Animated from 'react-native-reanimated';
 import { Mail, GraduationCap, School, Sparkles, ArrowRight } from 'lucide-react-native';
 import { useTheme } from '../../src/hooks/useTheme';
 import { Button, Input, ServerWakeup } from '../../src/components/ui';
-import { validateEmail, isFacultyEmail } from '../../src/utils/validators';
+import { validateEmail, isFacultyEmail, isStudentEmail, getDetectedRole } from '../../src/utils/validators';
 import { authService } from '../../src/services/authService';
 import { UserRole } from '../../src/types';
 import { useFadeIn, useSlideUp } from '../../src/animations/microInteractions';
@@ -39,7 +39,7 @@ export default function LoginScreen() {
 
   const handleSendOTP = async () => {
     setError('');
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
 
     if (!cleanEmail) {
       setError('Please enter your email address');
@@ -51,9 +51,16 @@ export default function LoginScreen() {
       return;
     }
 
-    if (role === 'faculty' && !isFacultyEmail(cleanEmail)) {
-      setError('Faculty login requires an institutional email (@siddhartha.ac.in or .ac.in / .edu)');
+    const detectedRole = getDetectedRole(cleanEmail);
+    if (!detectedRole) {
+      setError('Access restricted: Students must use @vrsec.ac.in, Faculty must use @siddhartha.ac.in.');
       return;
+    }
+
+    // Automatically enforce and assign the detected role
+    const effectiveRole = detectedRole;
+    if (role !== effectiveRole) {
+      setRole(effectiveRole);
     }
 
     setIsLoading(true);
@@ -63,14 +70,14 @@ export default function LoginScreen() {
     }, 4000);
 
     try {
-      await authService.requestOTP(cleanEmail, role);
+      await authService.requestOTP(cleanEmail, effectiveRole);
       clearTimeout(timer);
       setShowServerWakeup(false);
       setIsLoading(false);
 
       router.push({
         pathname: '/(auth)/otp-verify',
-        params: { email: cleanEmail, role },
+        params: { email: cleanEmail, role: effectiveRole },
       });
     } catch (err: any) {
       clearTimeout(timer);
@@ -247,16 +254,20 @@ export default function LoginScreen() {
           </View>
 
           <Input
-            label={role === 'faculty' ? 'Institutional Email' : 'Email Address'}
+            label={role === 'faculty' ? 'Faculty Institutional Email' : 'Student Institutional Email'}
             placeholder={
               role === 'faculty'
                 ? 'faculty@siddhartha.ac.in'
-                : 'student@example.com'
+                : 'student@vrsec.ac.in'
             }
             value={email}
             onChangeText={(text) => {
               setEmail(text);
               if (error) setError('');
+              const detected = getDetectedRole(text.trim());
+              if (detected && detected !== role) {
+                setRole(detected);
+              }
             }}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -264,8 +275,8 @@ export default function LoginScreen() {
             error={error}
             hint={
               role === 'faculty'
-                ? 'Restricted to authorized faculty domains'
-                : 'We will send a one-time verification passcode'
+                ? 'Restricted to @siddhartha.ac.in faculty accounts'
+                : 'Restricted to @vrsec.ac.in student accounts'
             }
             leftIcon={
               <Mail

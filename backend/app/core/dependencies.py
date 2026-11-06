@@ -96,11 +96,17 @@ async def get_current_user(
 async def require_student(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Dependency that ensures the authenticated user possesses the 'student' role."""
-    if current_user.get("role") != "student":
+    """Dependency that ensures the authenticated user possesses the 'student' role and @vrsec.ac.in email."""
+    from app.core.config import settings
+    email = (current_user.get("email") or "").strip().lower()
+    student_domain = settings.STUDENT_INSTITUTIONAL_DOMAIN.strip().lower()
+    if not student_domain.startswith("@"):
+        student_domain = f"@{student_domain}"
+
+    if current_user.get("role") != "student" or not email.endswith(student_domain):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access forbidden: this endpoint is exclusively for students.",
+            detail="Access forbidden: this endpoint is exclusively for verified @vrsec.ac.in students.",
         )
     return current_user
 
@@ -108,10 +114,13 @@ async def require_student(
 async def require_faculty(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Dependency that ensures the authenticated user possesses the 'faculty' role."""
-    if current_user.get("role") != "faculty":
+    """Dependency that ensures the authenticated user possesses the 'faculty' role and authorized faculty credentials."""
+    from app.core.security import verify_faculty_email
+    email = (current_user.get("email") or "").strip().lower()
+
+    if current_user.get("role") != "faculty" or not verify_faculty_email(email):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access forbidden: this endpoint is exclusively for faculty members.",
+            detail="Access forbidden: this endpoint is exclusively for authorized faculty members.",
         )
     return current_user

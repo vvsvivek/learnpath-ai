@@ -11,8 +11,8 @@ class OTPRequestSchema(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     email: EmailStr
-    role: Literal["student", "faculty"] = Field(
-        ..., description="Role claiming access: student or faculty"
+    role: Literal["student", "faculty"] | None = Field(
+        default=None, description="Optional role claim; automatically determined by email domain if omitted"
     )
 
 
@@ -22,7 +22,9 @@ class OTPVerifySchema(BaseModel):
 
     email: EmailStr
     otp: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
-    role: Literal["student", "faculty"]
+    role: Literal["student", "faculty"] | None = Field(
+        default=None, description="Optional role claim; validated and enforced automatically by email domain"
+    )
 
 
 class RefreshTokenSchema(BaseModel):

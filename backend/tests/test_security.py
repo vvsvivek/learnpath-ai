@@ -7,6 +7,8 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     verify_faculty_email,
+    verify_student_email,
+    get_role_for_email,
 )
 
 def test_generate_otp():
@@ -53,3 +55,24 @@ def test_faculty_email_verification():
     assert verify_faculty_email("otherperson@gmail.com") is False
     assert verify_faculty_email("student@vrsec.ac.in") is False
     assert verify_faculty_email("admin@yahoo.com") is False
+
+def test_student_email_verification():
+    # Only @vrsec.ac.in is authorized
+    assert verify_student_email("student2026@vrsec.ac.in") is True
+    assert verify_student_email("vivek.21b91a05xx@vrsec.ac.in") is True
+    assert verify_student_email("student@gmail.com") is False
+    assert verify_student_email("student@siddhartha.ac.in") is False
+    assert verify_student_email("student@yahoo.com") is False
+
+def test_get_role_for_email_automatic_assignment():
+    # Students
+    assert get_role_for_email("student@vrsec.ac.in") == "student"
+    assert get_role_for_email("ram.k@vrsec.ac.in") == "student"
+
+    # Faculty
+    assert get_role_for_email("professor@siddhartha.ac.in") == "faculty"
+    assert get_role_for_email("vivekvaranasi99@gmail.com") == "faculty"
+
+    # Unauthorized
+    assert get_role_for_email("random@gmail.com") is None
+    assert get_role_for_email("test@outlook.com") is None

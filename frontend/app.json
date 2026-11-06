@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "AI Personalized Learning",
+    "slug": "ai-personalized-learning",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "learnpath",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.vrsec.learnpathai"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

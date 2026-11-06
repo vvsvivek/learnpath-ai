@@ -110,7 +110,7 @@ Please provide actionable, professional, and data-driven guidance formatted in c
 
     # 4. Generate AI response via Gemini
     try:
-        reply_text = await call_gemini_with_retry(full_prompt)
+        reply_text = await call_gemini_with_retry(full_prompt, response_mime_type="text/plain")
         if not reply_text:
             reply_text = (
                 "Based on the departmental metrics, I recommend reviewing student engagement in Phase 2 "

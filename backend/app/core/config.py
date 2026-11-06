@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # Gemini Configuration
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash"
 
     # Security & JWT Configuration
     JWT_SECRET_KEY: str = "super-secret-jwt-key-minimum-32-characters-required-for-production"

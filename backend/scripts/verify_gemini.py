@@ -11,11 +11,12 @@ import os
 import sys
 from dotenv import load_dotenv
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 load_dotenv()
 
 async def verify_gemini():
     api_key = os.getenv("GEMINI_API_KEY")
-    model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
     if not api_key or "your-gemini-api-key" in api_key:
         print("[FAIL] Missing or placeholder GEMINI_API_KEY.")
@@ -89,7 +90,7 @@ async def verify_gemini():
             contents=prompt_tutor,
         )
         print("  [OK] AI Tutor Response Generated:")
-        print(f"  {response_tutor.text[:250]}...\n")
+        print(f"  {response_tutor.text[:250].encode('ascii', errors='replace').decode('ascii')}...\n")
     except Exception as e:
         print(f"  [ERROR] AI Tutor generation failed: {e}")
         sys.exit(1)

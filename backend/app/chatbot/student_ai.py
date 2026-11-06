@@ -111,7 +111,7 @@ Please reply directly to the student in helpful, clear markdown with concise exp
 
     # 4. Generate AI response via Gemini
     try:
-        reply_text = await call_gemini_with_retry(full_prompt)
+        reply_text = await call_gemini_with_retry(full_prompt, response_mime_type="text/plain")
         if not reply_text:
             reply_text = (
                 "I'm here to support your learning journey! Based on your current coursework, "

@@ -145,7 +145,7 @@ Give specific suggestions on where to focus next.
 """
     ai_insights = ""
     try:
-        raw_insights = await call_gemini_with_retry(prompt)
+        raw_insights = await call_gemini_with_retry(prompt, response_mime_type="text/plain")
         ai_insights = raw_insights.strip() if raw_insights else ""
     except Exception as exc:
         logger.warning("Could not generate AI insights: %s", exc)

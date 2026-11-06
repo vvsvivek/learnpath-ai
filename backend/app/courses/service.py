@@ -37,7 +37,12 @@ def get_gemini_client() -> genai.Client:
     return genai.Client(api_key=settings.GEMINI_API_KEY)
 
 
-async def call_gemini_with_retry(prompt: str, retries: int = 3, delay: float = 2.0) -> str:
+async def call_gemini_with_retry(
+    prompt: str,
+    retries: int = 3,
+    delay: float = 2.0,
+    response_mime_type: str = "application/json",
+) -> str:
     """Execute Gemini prompt with exponential backoff on rate limits."""
     if not settings.GEMINI_API_KEY:
         logger.warning("GEMINI_API_KEY is not configured. Returning fallback response.")
@@ -47,14 +52,16 @@ async def call_gemini_with_retry(prompt: str, retries: int = 3, delay: float = 2
     for attempt in range(retries):
         try:
             # Run blocking SDK call in threadpool
+            gen_config = (
+                types.GenerateContentConfig(response_mime_type=response_mime_type, temperature=0.3)
+                if response_mime_type
+                else types.GenerateContentConfig(temperature=0.3)
+            )
             response = await asyncio.to_thread(
                 client.models.generate_content,
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.3,
-                ),
+                config=gen_config,
             )
             return response.text or ""
         except Exception as exc:

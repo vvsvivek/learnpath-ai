@@ -34,17 +34,31 @@ public class AuthService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
-     * Strictly computes user role on backend.
-     * Faculty: Any email ending in @siddhartha.ac.in or vivekvaranasi99@gmail.com
-     * Student: All other valid emails
+     * Institutional Email & Role Enforcement:
+     * - Faculty: Any email ending in @siddhartha.ac.in or vivekvaranasi99@gmail.com
+     * - Student: Strictly emails ending in @vrsec.ac.in
+     * - Any other domain: Rejected as unauthorized institutional domain
      */
+    public boolean isAuthorizedInstitutionalEmail(String email) {
+        if (email == null) return false;
+        String clean = email.trim().toLowerCase();
+        boolean isFaculty = clean.endsWith("@siddhartha.ac.in") || clean.equalsIgnoreCase("vivekvaranasi99@gmail.com");
+        boolean isStudent = clean.endsWith("@vrsec.ac.in");
+        return isFaculty || isStudent;
+    }
+
     public String determineRole(String email) {
-        if (email == null) return "STUDENT";
+        if (email == null) {
+            throw new IllegalArgumentException("Email is required.");
+        }
         String clean = email.trim().toLowerCase();
         if (clean.endsWith("@siddhartha.ac.in") || clean.equalsIgnoreCase("vivekvaranasi99@gmail.com")) {
             return "FACULTY";
         }
-        return "STUDENT";
+        if (clean.endsWith("@vrsec.ac.in")) {
+            return "STUDENT";
+        }
+        throw new IllegalArgumentException("Unauthorized email domain. Registration is restricted to @vrsec.ac.in for students and @siddhartha.ac.in for faculty.");
     }
 
     public Map<String, Object> sendOtp(String rawEmail) {
@@ -52,6 +66,13 @@ public class AuthService {
             throw new IllegalArgumentException("Email is required.");
         }
         String cleanEmail = rawEmail.trim().toLowerCase();
+
+        // Enforce institutional domain restriction
+        if (!isAuthorizedInstitutionalEmail(cleanEmail)) {
+            if (userRepository.findByEmail(cleanEmail).isEmpty()) {
+                throw new IllegalArgumentException("Invalid institutional email. Students must register with @vrsec.ac.in and faculty with @siddhartha.ac.in.");
+            }
+        }
 
         // Generate 6-digit cryptographic OTP
         String otpCode = String.format("%06d", secureRandom.nextInt(1000000));

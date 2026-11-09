@@ -12,7 +12,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping({"/api/main", "/api"})
+@RequestMapping("/api/main")
 @CrossOrigin(origins = "*")
 public class ApiController {
 

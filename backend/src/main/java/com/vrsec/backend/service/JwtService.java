@@ -1,25 +1,41 @@
 package com.vrsec.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.Base64;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
 @Service
 public class JwtService {
 
-    @Value("${jwt.secret:LearnPathAISecretKeyForProductionTokenSigning20261109SecureKey}")
-    private String secretKey;
+    @Value("${jwt.secret:}")
+    private String configuredSecret;
+
+    private String activeSecret;
 
     private static final long DEFAULT_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000L; // 7 days
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @PostConstruct
+    public void init() {
+        if (configuredSecret != null && !configuredSecret.trim().isEmpty()) {
+            this.activeSecret = configuredSecret.trim();
+        } else {
+            // Generate cryptographic 256-bit ephemeral secret if no environment variable provided
+            byte[] randomBytes = new byte[32];
+            new SecureRandom().nextBytes(randomBytes);
+            this.activeSecret = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+            System.out.println("[SECURITY] JWT_SECRET environment variable not set. Initialized cryptographic ephemeral key.");
+        }
+    }
 
     public String generateToken(String email, String role, Long userId) {
         try {
@@ -39,7 +55,7 @@ public class JwtService {
             String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(objectMapper.writeValueAsBytes(payload));
             String data = encodedHeader + "." + encodedPayload;
 
-            String signature = hmacSha256(data, secretKey);
+            String signature = hmacSha256(data, activeSecret);
             return data + "." + signature;
         } catch (Exception e) {
             throw new RuntimeException("Error generating JWT token", e);
@@ -53,7 +69,7 @@ public class JwtService {
             if (parts.length != 3) return null;
 
             String data = parts[0] + "." + parts[1];
-            String expectedSignature = hmacSha256(data, secretKey);
+            String expectedSignature = hmacSha256(data, activeSecret);
             if (!expectedSignature.equals(parts[2])) {
                 return null; // Invalid signature
             }

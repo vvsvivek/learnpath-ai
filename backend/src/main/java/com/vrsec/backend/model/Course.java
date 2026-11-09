@@ -21,7 +21,10 @@ public class Course {
 
     private Integer currentPhase = 1;
     private Integer totalPhases = 4;
+    @Column(name = "is_custom")
     private boolean isCustom = false;
+
+    @Column(name = "is_deleted")
     private boolean deleted = false;
 
     private LocalDateTime createdAt = LocalDateTime.now();

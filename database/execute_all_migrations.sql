@@ -6,6 +6,253 @@
 -- and configures RLS without deleting or modifying any existing data.
 -- =================================================================
 
+-- =================================================================
+-- SECTION 0: COMPATIBILITY MIGRATION (UUID TO BIGINT TYPE ALIGNMENT)
+-- Safely migrates any legacy UUID primary/foreign keys to BIGINT sequences
+-- =================================================================
+DO $$
+DECLARE
+    col_type text;
+    pk_name text;
+    r RECORD;
+BEGIN
+    -- Drop legacy foreign keys to allow column type alignment
+    FOR r IN (
+        SELECT tc.table_schema, tc.table_name, tc.constraint_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND ccu.table_name IN ('courses', 'users', 'course_phases', 'chat_sessions', 'quiz_questions', 'quiz_attempts', 'topic_performance', 'learning_paths')
+    ) LOOP
+        EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+    END LOOP;
+
+    -- USERS: Migrate id from UUID to BIGINT if needed
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'users' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE users DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS users_id_seq;
+            ALTER TABLE users ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE users ALTER COLUMN id TYPE BIGINT USING nextval('users_id_seq');
+            ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
+            ALTER TABLE users ADD PRIMARY KEY (id);
+            ALTER SEQUENCE users_id_seq OWNED BY users.id;
+            IF (SELECT COUNT(*) FROM users) > 0 THEN
+                PERFORM setval('users_id_seq', (SELECT MAX(id) FROM users));
+            ELSE
+                PERFORM setval('users_id_seq', 1, false);
+            END IF;
+        END IF;
+
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'STUDENT';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS branch VARCHAR(50);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS academic_year VARCHAR(50);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS semester VARCHAR(50);
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS cgpa NUMERIC(4,2) DEFAULT 0.00;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(50) DEFAULT 'EMAIL';
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+        UPDATE users SET username = split_part(email, '@', 1) WHERE username IS NULL OR username = '';
+    END IF;
+
+    -- COURSES: Migrate id from UUID to BIGINT if needed
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'courses') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'courses' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'courses' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE courses DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS courses_id_seq;
+            ALTER TABLE courses ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE courses ALTER COLUMN id TYPE BIGINT USING nextval('courses_id_seq');
+            ALTER TABLE courses ALTER COLUMN id SET DEFAULT nextval('courses_id_seq');
+            ALTER TABLE courses ADD PRIMARY KEY (id);
+            ALTER SEQUENCE courses_id_seq OWNED BY courses.id;
+            IF (SELECT COUNT(*) FROM courses) > 0 THEN
+                PERFORM setval('courses_id_seq', (SELECT MAX(id) FROM courses));
+            ELSE
+                PERFORM setval('courses_id_seq', 1, false);
+            END IF;
+        END IF;
+
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS user_email VARCHAR(255);
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS user_id BIGINT;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS title VARCHAR(255) NOT NULL DEFAULT 'Course';
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS description TEXT;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS difficulty VARCHAR(50) DEFAULT 'Standard';
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS progress INT DEFAULT 0;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS current_phase INT DEFAULT 1;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS total_phases INT DEFAULT 4;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_custom BOOLEAN DEFAULT FALSE;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS deleted BOOLEAN DEFAULT FALSE;
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+        ALTER TABLE courses ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+    END IF;
+
+    -- COURSE_PHASES: Align id and course_id to BIGINT if needed
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'course_phases') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'course_phases' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'course_phases' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE course_phases DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS course_phases_id_seq;
+            ALTER TABLE course_phases ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE course_phases ALTER COLUMN id TYPE BIGINT USING nextval('course_phases_id_seq');
+            ALTER TABLE course_phases ALTER COLUMN id SET DEFAULT nextval('course_phases_id_seq');
+            ALTER TABLE course_phases ADD PRIMARY KEY (id);
+            ALTER SEQUENCE course_phases_id_seq OWNED BY course_phases.id;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'course_phases' AND column_name = 'course_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'course_phases' AND column_name = 'course_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE course_phases ALTER COLUMN course_id DROP DEFAULT;
+                ALTER TABLE course_phases ALTER COLUMN course_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+    END IF;
+
+    -- QUIZ_QUESTIONS: Align types to BIGINT
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_questions') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_questions' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'quiz_questions' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS quiz_questions_id_seq;
+            ALTER TABLE quiz_questions ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE quiz_questions ALTER COLUMN id TYPE BIGINT USING nextval('quiz_questions_id_seq');
+            ALTER TABLE quiz_questions ALTER COLUMN id SET DEFAULT nextval('quiz_questions_id_seq');
+            ALTER TABLE quiz_questions ADD PRIMARY KEY (id);
+            ALTER SEQUENCE quiz_questions_id_seq OWNED BY quiz_questions.id;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_questions' AND column_name = 'course_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_questions' AND column_name = 'course_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE quiz_questions ALTER COLUMN course_id DROP DEFAULT;
+                ALTER TABLE quiz_questions ALTER COLUMN course_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_questions' AND column_name = 'phase_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_questions' AND column_name = 'phase_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE quiz_questions ALTER COLUMN phase_id DROP DEFAULT;
+                ALTER TABLE quiz_questions ALTER COLUMN phase_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+    END IF;
+
+    -- QUIZ_ATTEMPTS: Align types to BIGINT
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_attempts') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'quiz_attempts' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS quiz_attempts_id_seq;
+            ALTER TABLE quiz_attempts ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE quiz_attempts ALTER COLUMN id TYPE BIGINT USING nextval('quiz_attempts_id_seq');
+            ALTER TABLE quiz_attempts ALTER COLUMN id SET DEFAULT nextval('quiz_attempts_id_seq');
+            ALTER TABLE quiz_attempts ADD PRIMARY KEY (id);
+            ALTER SEQUENCE quiz_attempts_id_seq OWNED BY quiz_attempts.id;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'user_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'user_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE quiz_attempts ALTER COLUMN user_id DROP DEFAULT;
+                ALTER TABLE quiz_attempts ALTER COLUMN user_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'course_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'course_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE quiz_attempts ALTER COLUMN course_id DROP DEFAULT;
+                ALTER TABLE quiz_attempts ALTER COLUMN course_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'phase_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'phase_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE quiz_attempts ALTER COLUMN phase_id DROP DEFAULT;
+                ALTER TABLE quiz_attempts ALTER COLUMN phase_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+    END IF;
+
+    -- TOPIC_PERFORMANCE: Align types to BIGINT
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'topic_performance') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'topic_performance' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'topic_performance' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE topic_performance DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS topic_performance_id_seq;
+            ALTER TABLE topic_performance ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE topic_performance ALTER COLUMN id TYPE BIGINT USING nextval('topic_performance_id_seq');
+            ALTER TABLE topic_performance ALTER COLUMN id SET DEFAULT nextval('topic_performance_id_seq');
+            ALTER TABLE topic_performance ADD PRIMARY KEY (id);
+            ALTER SEQUENCE topic_performance_id_seq OWNED BY topic_performance.id;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'topic_performance' AND column_name = 'user_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'topic_performance' AND column_name = 'user_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE topic_performance ALTER COLUMN user_id DROP DEFAULT;
+                ALTER TABLE topic_performance ALTER COLUMN user_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+    END IF;
+
+    -- CHAT_MESSAGES: Align types to BIGINT
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages') THEN
+        SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'id';
+        IF col_type = 'uuid' THEN
+            SELECT constraint_name INTO pk_name FROM information_schema.table_constraints WHERE table_name = 'chat_messages' AND constraint_type = 'PRIMARY KEY';
+            IF pk_name IS NOT NULL THEN
+                EXECUTE 'ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS ' || quote_ident(pk_name) || ' CASCADE';
+            END IF;
+            CREATE SEQUENCE IF NOT EXISTS chat_messages_id_seq;
+            ALTER TABLE chat_messages ALTER COLUMN id DROP DEFAULT;
+            ALTER TABLE chat_messages ALTER COLUMN id TYPE BIGINT USING nextval('chat_messages_id_seq');
+            ALTER TABLE chat_messages ALTER COLUMN id SET DEFAULT nextval('chat_messages_id_seq');
+            ALTER TABLE chat_messages ADD PRIMARY KEY (id);
+            ALTER SEQUENCE chat_messages_id_seq OWNED BY chat_messages.id;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'session_id') THEN
+            SELECT data_type INTO col_type FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'session_id';
+            IF col_type = 'uuid' THEN
+                ALTER TABLE chat_messages ALTER COLUMN session_id DROP DEFAULT;
+                ALTER TABLE chat_messages ALTER COLUMN session_id TYPE BIGINT USING NULL;
+            END IF;
+        END IF;
+    END IF;
+END $$;
+
+-- =================================================================
+-- SECTION 1: CORE TABLES DEFINITION (IDEMPOTENT CREATION)
+-- =================================================================
+
 -- 1. USERS TABLE
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,

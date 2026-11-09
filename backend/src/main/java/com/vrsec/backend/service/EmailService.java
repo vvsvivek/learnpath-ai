@@ -23,6 +23,12 @@ public class EmailService {
     @Value("${brevo.api.key:}")
     private String brevoApiKey;
 
+    @Value("${brevo.sender.email:}")
+    private String brevoSenderEmail;
+
+    @Value("${brevo.sender.name:LearnPath AI}")
+    private String brevoSenderName;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public boolean sendOtpEmail(String recipientEmail, String otpCode) {
@@ -48,7 +54,14 @@ public class EmailService {
             conn.setRequestProperty("Accept", "application/json");
             conn.setDoOutput(true);
 
-            Map<String, Object> sender = Map.of("name", "LearnPath AI", "email", "noreply@learnpath.ai");
+            String effectiveSenderEmail = (brevoSenderEmail != null && !brevoSenderEmail.trim().isEmpty())
+                    ? brevoSenderEmail.trim()
+                    : "noreply@learnpath.ai";
+            String effectiveSenderName = (brevoSenderName != null && !brevoSenderName.trim().isEmpty())
+                    ? brevoSenderName.trim()
+                    : "LearnPath AI";
+
+            Map<String, Object> sender = Map.of("name", effectiveSenderName, "email", effectiveSenderEmail);
             List<Map<String, Object>> to = Collections.singletonList(Map.of("email", email));
             String htmlContent = "<div style='font-family: Arial, sans-serif; padding: 24px; background-color: #f8fafc; border-radius: 12px; max-width: 500px; margin: auto;'>"
                     + "<h2 style='color: #1E3A5F; margin-bottom: 8px;'>LearnPath AI Verification Code</h2>"

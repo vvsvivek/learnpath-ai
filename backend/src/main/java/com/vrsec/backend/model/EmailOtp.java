@@ -21,6 +21,7 @@ public class EmailOtp {
 
     private int attempts = 0;
 
+    @Column(name = "is_used")
     private boolean used = false;
 
     @Column(nullable = false)

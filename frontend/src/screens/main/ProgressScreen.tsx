@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Colors } from '../../styles/theme';
+import { api } from '../../services/api';
 
 interface ProgressScreenProps {
   userData: any;
@@ -30,14 +31,9 @@ export default function ProgressScreen({
     const fetchCourses = async () => {
       try {
         setLoading(true);
-        const res = await fetch(
-          `http://10.0.2.2:5000/api/main/dashboard?email=${encodeURIComponent(email)}`
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data?.activeCourses)) {
-            setActiveCourses(data.activeCourses);
-          }
+        const data = await api.getDashboard(email);
+        if (Array.isArray(data?.activeCourses)) {
+          setActiveCourses(data.activeCourses);
         }
       } catch (_err) {
         setActiveCourses([]);

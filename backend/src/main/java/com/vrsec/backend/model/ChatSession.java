@@ -1,21 +1,40 @@
 package com.vrsec.backend.model;
 
 import jakarta.persistence.*;
-import java.util.Date;
+import java.time.LocalDateTime;
 
 @Entity
+@Table(name = "chat_sessions")
 public class ChatSession {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     
-    private String title;
-    private String status = "ACTIVE"; // Needs this for Archive/Delete feature
+    private String title = "New Session";
+    private String status = "ACTIVE"; // "ACTIVE", "ARCHIVED", "DELETED"
+    private String contextType = "STUDENT"; // "STUDENT", "FACULTY"
     
-    @ManyToOne
+    private String userEmail;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "user_id")
     private User user;
     
-    private Date createdAt = new Date();
+    private LocalDateTime createdAt = LocalDateTime.now();
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @PrePersist
+    protected void onCreate() {
+        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (updatedAt == null) updatedAt = LocalDateTime.now();
+        if (title == null || title.isEmpty()) title = "New Session";
+        if (status == null) status = "ACTIVE";
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -23,8 +42,14 @@ public class ChatSession {
     public void setTitle(String title) { this.title = title; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getContextType() { return contextType; }
+    public void setContextType(String contextType) { this.contextType = contextType; }
+    public String getUserEmail() { return userEmail; }
+    public void setUserEmail(String userEmail) { this.userEmail = userEmail != null ? userEmail.trim().toLowerCase() : null; }
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
-    public Date getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Date createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

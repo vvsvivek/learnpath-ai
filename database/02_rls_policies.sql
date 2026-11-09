@@ -1,5 +1,6 @@
 -- =================================================================
--- LEARNPATH AI — ROW LEVEL SECURITY POLICIES (02_rls_policies.sql)
+-- LEARNPATH AI — IDEMPOTENT ROW LEVEL SECURITY POLICIES (02_rls_policies.sql)
+-- Safe to execute repeatedly: preserves all existing data and drops only policies before recreating
 -- =================================================================
 
 -- Enable RLS across all application tables
@@ -16,12 +17,12 @@ ALTER TABLE chat_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
 
 -- 1. USERS POLICIES
--- Students can read their own profile
+DROP POLICY IF EXISTS student_read_own_profile ON users;
 CREATE POLICY student_read_own_profile ON users
     FOR SELECT
     USING (auth.jwt() ->> 'email' = email);
 
--- Faculty can read student profiles IF the student is registered with @vrsec.ac.in
+DROP POLICY IF EXISTS faculty_read_eligible_students ON users;
 CREATE POLICY faculty_read_eligible_students ON users
     FOR SELECT
     USING (
@@ -29,20 +30,20 @@ CREATE POLICY faculty_read_eligible_students ON users
         AND email LIKE '%@vrsec.ac.in'
     );
 
--- Users can update only their own profile details
+DROP POLICY IF EXISTS user_update_own_profile ON users;
 CREATE POLICY user_update_own_profile ON users
     FOR UPDATE
     USING (auth.jwt() ->> 'email' = email)
     WITH CHECK (auth.jwt() ->> 'email' = email);
 
 -- 2. COURSES POLICIES
--- Students can manage their own enrolled courses
+DROP POLICY IF EXISTS student_all_own_courses ON courses;
 CREATE POLICY student_all_own_courses ON courses
     FOR ALL
     USING (auth.jwt() ->> 'email' = user_email)
     WITH CHECK (auth.jwt() ->> 'email' = user_email);
 
--- Faculty can view courses of eligible @vrsec.ac.in students
+DROP POLICY IF EXISTS faculty_view_eligible_student_courses ON courses;
 CREATE POLICY faculty_view_eligible_student_courses ON courses
     FOR SELECT
     USING (
@@ -51,7 +52,7 @@ CREATE POLICY faculty_view_eligible_student_courses ON courses
     );
 
 -- 3. COURSE PHASES POLICIES
--- Accessible if the student owns the underlying course
+DROP POLICY IF EXISTS student_view_course_phases ON course_phases;
 CREATE POLICY student_view_course_phases ON course_phases
     FOR SELECT
     USING (
@@ -63,7 +64,7 @@ CREATE POLICY student_view_course_phases ON course_phases
     );
 
 -- 4. QUIZ QUESTIONS POLICIES
--- Questions are readable by the course owner, but correct_option is never directly exposed via client queries
+DROP POLICY IF EXISTS student_read_phase_questions ON quiz_questions;
 CREATE POLICY student_read_phase_questions ON quiz_questions
     FOR SELECT
     USING (
@@ -75,7 +76,7 @@ CREATE POLICY student_read_phase_questions ON quiz_questions
     );
 
 -- 5. QUIZ ATTEMPTS POLICIES
--- Students can read their own quiz attempts
+DROP POLICY IF EXISTS student_read_own_attempts ON quiz_attempts;
 CREATE POLICY student_read_own_attempts ON quiz_attempts
     FOR SELECT
     USING (
@@ -86,7 +87,7 @@ CREATE POLICY student_read_own_attempts ON quiz_attempts
         )
     );
 
--- Faculty can view quiz performance of eligible @vrsec.ac.in students
+DROP POLICY IF EXISTS faculty_view_eligible_student_attempts ON quiz_attempts;
 CREATE POLICY faculty_view_eligible_student_attempts ON quiz_attempts
     FOR SELECT
     USING (
@@ -99,7 +100,7 @@ CREATE POLICY faculty_view_eligible_student_attempts ON quiz_attempts
     );
 
 -- 6. TOPIC PERFORMANCE POLICIES
--- Students read their own weak topics
+DROP POLICY IF EXISTS student_read_own_topic_performance ON topic_performance;
 CREATE POLICY student_read_own_topic_performance ON topic_performance
     FOR SELECT
     USING (
@@ -110,7 +111,7 @@ CREATE POLICY student_read_own_topic_performance ON topic_performance
         )
     );
 
--- Faculty read topic performance of @vrsec.ac.in students
+DROP POLICY IF EXISTS faculty_read_eligible_topic_performance ON topic_performance;
 CREATE POLICY faculty_read_eligible_topic_performance ON topic_performance
     FOR SELECT
     USING (
@@ -123,7 +124,7 @@ CREATE POLICY faculty_read_eligible_topic_performance ON topic_performance
     );
 
 -- 7. SUGGESTED COURSES POLICIES
--- Faculty can create, edit, delete their own recommendations
+DROP POLICY IF EXISTS faculty_manage_suggested_courses ON suggested_courses;
 CREATE POLICY faculty_manage_suggested_courses ON suggested_courses
     FOR ALL
     USING (
@@ -131,7 +132,7 @@ CREATE POLICY faculty_manage_suggested_courses ON suggested_courses
         AND (auth.jwt() ->> 'email' LIKE '%@siddhartha.ac.in' OR auth.jwt() ->> 'email' = 'vivekvaranasi99@gmail.com')
     );
 
--- Students can read recommendations matching their cohort IF they are @vrsec.ac.in
+DROP POLICY IF EXISTS student_read_matching_recommendations ON suggested_courses;
 CREATE POLICY student_read_matching_recommendations ON suggested_courses
     FOR SELECT
     USING (
@@ -146,12 +147,13 @@ CREATE POLICY student_read_matching_recommendations ON suggested_courses
     );
 
 -- 8. CHAT SESSIONS & MESSAGES (STRICT USER PRIVACY)
--- Only the owner of the chat session can read or write
+DROP POLICY IF EXISTS user_manage_own_chat_sessions ON chat_sessions;
 CREATE POLICY user_manage_own_chat_sessions ON chat_sessions
     FOR ALL
     USING (auth.jwt() ->> 'email' = user_email)
     WITH CHECK (auth.jwt() ->> 'email' = user_email);
 
+DROP POLICY IF EXISTS user_manage_own_chat_messages ON chat_messages;
 CREATE POLICY user_manage_own_chat_messages ON chat_messages
     FOR ALL
     USING (

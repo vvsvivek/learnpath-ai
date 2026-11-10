@@ -1,5 +1,6 @@
 package com.vrsec.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -12,6 +13,7 @@ public class QuizAttempt {
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id")
+    @JsonIgnore
     private User user;
 
     @ManyToOne(fetch = FetchType.EAGER)

@@ -1,5 +1,6 @@
 package com.vrsec.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
 
@@ -18,6 +19,7 @@ public class ChatSession {
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id")
+    @JsonIgnore
     private User user;
     
     private LocalDateTime createdAt = LocalDateTime.now();

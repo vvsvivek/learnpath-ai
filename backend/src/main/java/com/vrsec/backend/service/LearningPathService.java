@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
+@Transactional(readOnly = true)
 public class LearningPathService {
 
     @Value("${gemini.api.key:}")

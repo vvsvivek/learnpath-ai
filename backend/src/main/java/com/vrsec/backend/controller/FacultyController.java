@@ -4,6 +4,7 @@ import com.vrsec.backend.model.*;
 import com.vrsec.backend.repository.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -13,6 +14,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping({"/api/faculty", "/api/v2/faculty", "/api/main/faculty"})
 @CrossOrigin(origins = "*")
+@Transactional(readOnly = true)
 public class FacultyController {
 
     @Autowired private UserRepository userRepository;
@@ -232,6 +234,7 @@ public class FacultyController {
      * Faculty assigns a recommended course to a target cohort.
      * Enforces eligibility: only eligible @vrsec.ac.in students matching the targeted branch, year, semester receive it.
      */
+    @Transactional
     @PostMapping({"/recommend", "/suggest-course"})
     public ResponseEntity<?> recommendCourse(@RequestBody Map<String, Object> req) {
         try {
@@ -278,6 +281,7 @@ public class FacultyController {
         }
     }
 
+    @Transactional
     @DeleteMapping("/recommend/{id}")
     public ResponseEntity<?> deleteRecommendation(@PathVariable Long id) {
         try {

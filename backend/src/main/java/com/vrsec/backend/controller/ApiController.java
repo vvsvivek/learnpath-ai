@@ -6,6 +6,7 @@ import com.vrsec.backend.service.AuthService;
 import com.vrsec.backend.service.LearningPathService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -14,6 +15,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/main")
 @CrossOrigin(origins = "*")
+@Transactional(readOnly = true)
 public class ApiController {
 
     @Autowired private UserRepository userRepository;
@@ -192,6 +194,7 @@ public class ApiController {
         }
     }
 
+    @Transactional
     @PostMapping("/course/toggle-delete")
     public ResponseEntity<?> toggleCourseDelete(@RequestBody Map<String, Object> req) {
         try {
@@ -213,6 +216,7 @@ public class ApiController {
     // =========================================================================
     // 4. PROFILE UPDATE
     // =========================================================================
+    @Transactional
     @PostMapping("/profile/update")
     public ResponseEntity<?> updateProfile(@RequestBody Map<String, Object> req) {
         try {

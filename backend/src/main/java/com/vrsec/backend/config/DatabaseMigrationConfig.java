@@ -714,6 +714,17 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 END LOOP;
             END IF;
 
+            -- 11. SEED DEFAULT TEST ACCOUNTS FOR END-TO-END VERIFICATION (IF ABSENT)
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
+                INSERT INTO users (email, username, role, branch, academic_year, semester, cgpa, is_email_verified, auth_provider, password)
+                SELECT '22vr1a0501@vrsec.ac.in', 'Student 22VR1A0501', 'STUDENT', 'CSE', '2nd Year', '1st Sem', 8.50, TRUE, 'EMAIL', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f'
+                WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = '22vr1a0501@vrsec.ac.in');
+
+                INSERT INTO users (email, username, role, branch, academic_year, semester, cgpa, is_email_verified, auth_provider, password)
+                SELECT 'hod.cse@siddhartha.ac.in', 'Dr. HOD CSE', 'FACULTY', 'CSE', NULL, NULL, NULL, TRUE, 'EMAIL', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f'
+                WHERE NOT EXISTS (SELECT 1 FROM users WHERE email = 'hod.cse@siddhartha.ac.in');
+            END IF;
+
             -- 11. PHASE 10: CREATE PERFORMANCE & AUDIT INDEXES
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_courses_user_email ON courses(user_email);

@@ -40,7 +40,7 @@ public class ApiController {
         }
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = {IllegalArgumentException.class})
     @PostMapping({"/auth", "/auth/verify-otp"})
     public ResponseEntity<?> legacyVerifyOtp(@RequestBody Map<String, String> req) {
         try {

@@ -581,6 +581,24 @@ BEGIN
 
     -- CHAT_MESSAGES
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'conversation_id') THEN
+            ALTER TABLE chat_messages ALTER COLUMN conversation_id DROP NOT NULL;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'id' AND data_type = 'uuid') THEN
+            ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS new_id BIGSERIAL;
+            FOR r IN (
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_name = 'chat_messages' AND constraint_type = 'PRIMARY KEY'
+            ) LOOP
+                EXECUTE 'ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ' CASCADE';
+            END LOOP;
+            ALTER TABLE chat_messages DROP COLUMN IF EXISTS id CASCADE;
+            ALTER TABLE chat_messages RENAME COLUMN new_id TO id;
+            ALTER TABLE chat_messages ADD PRIMARY KEY (id);
+        END IF;
+
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS session_id BIGINT;
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender VARCHAR(50) DEFAULT 'user';
         ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';

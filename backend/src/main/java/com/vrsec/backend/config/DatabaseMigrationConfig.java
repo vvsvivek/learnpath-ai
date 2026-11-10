@@ -61,7 +61,7 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
             stmt.execute(MIGRATION_SQL);
             log.info("[DB MIGRATION] Relational schema migration completed successfully. All keys and foreign relations aligned to BIGINT.");
         } catch (Exception e) {
-            log.warn("[DB MIGRATION] Notice: Database schema check bypassed or running in offline mode: {}", e.getMessage());
+            log.error("[DB MIGRATION] Notice: Database schema migration encountered an issue: {}", e.getMessage(), e);
         }
     }
 
@@ -295,6 +295,31 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 ALTER TABLE quiz_questions DROP COLUMN phase_id; ALTER TABLE quiz_questions RENAME COLUMN new_phase_id TO phase_id;
             END IF;
 
+            -- chat_sessions: user_id
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_sessions' AND column_name = 'new_user_id') THEN
+                ALTER TABLE chat_sessions DROP COLUMN user_id; ALTER TABLE chat_sessions RENAME COLUMN new_user_id TO user_id;
+            END IF;
+
+            -- chat_messages: session_id
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'new_session_id') THEN
+                ALTER TABLE chat_messages DROP COLUMN session_id; ALTER TABLE chat_messages RENAME COLUMN new_session_id TO session_id;
+            END IF;
+
+            -- topic_performance: user_id
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'topic_performance' AND column_name = 'new_user_id') THEN
+                ALTER TABLE topic_performance DROP COLUMN user_id; ALTER TABLE topic_performance RENAME COLUMN new_user_id TO user_id;
+            END IF;
+
+            -- learning_paths: student_id
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'learning_paths' AND column_name = 'new_student_id') THEN
+                ALTER TABLE learning_paths DROP COLUMN student_id; ALTER TABLE learning_paths RENAME COLUMN new_student_id TO student_id;
+            END IF;
+
+            -- courses: user_id
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courses' AND column_name = 'new_user_id') THEN
+                ALTER TABLE courses DROP COLUMN user_id; ALTER TABLE courses RENAME COLUMN new_user_id TO user_id;
+            END IF;
+
             -- 9. PHASE 8: ENSURE ALL SPRING BOOT COLUMNS EXIST ACROSS ENTITIES
             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS password VARCHAR(255);
@@ -358,6 +383,221 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 );
+            END IF;
+
+            -- COURSE_PHASES
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'course_phases') THEN
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS course_id BIGINT;
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS phase_number INT DEFAULT 1;
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS title VARCHAR(255) DEFAULT 'Phase';
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS learning_objectives TEXT;
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS study_material TEXT DEFAULT '';
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS estimated_duration VARCHAR(50) DEFAULT '2-3 Hours';
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS is_unlocked BOOLEAN DEFAULT FALSE;
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS is_completed BOOLEAN DEFAULT FALSE;
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+                ALTER TABLE course_phases ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+            ELSE
+                CREATE TABLE course_phases (
+                    id BIGSERIAL PRIMARY KEY,
+                    course_id BIGINT,
+                    phase_number INT NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    learning_objectives TEXT,
+                    study_material TEXT NOT NULL,
+                    estimated_duration VARCHAR(50) DEFAULT '2-3 Hours',
+                    is_unlocked BOOLEAN DEFAULT FALSE,
+                    is_completed BOOLEAN DEFAULT FALSE,
+                    completed_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            END IF;
+
+            -- QUIZ_QUESTIONS
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_questions') THEN
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS phase_id BIGINT;
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS course_id BIGINT;
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_text TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_a TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_b TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_c TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_d TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS correct_option VARCHAR(10) DEFAULT 'A';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS explanation TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS concept_tag VARCHAR(100);
+                ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+            ELSE
+                CREATE TABLE quiz_questions (
+                    id BIGSERIAL PRIMARY KEY,
+                    phase_id BIGINT,
+                    course_id BIGINT,
+                    question_text TEXT NOT NULL,
+                    option_a TEXT NOT NULL,
+                    option_b TEXT NOT NULL,
+                    option_c TEXT NOT NULL,
+                    option_d TEXT NOT NULL,
+                    correct_option VARCHAR(10) NOT NULL,
+                    explanation TEXT NOT NULL,
+                    concept_tag VARCHAR(100),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            END IF;
+
+            -- QUIZ_ATTEMPTS
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_attempts') THEN
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS user_id BIGINT;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS course_id BIGINT;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS phase_id BIGINT;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS score INT DEFAULT 0;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS total_questions INT DEFAULT 10;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS percentage NUMERIC(5,2) DEFAULT 0.00;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS passed BOOLEAN DEFAULT FALSE;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS topic VARCHAR(255);
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS attempt_number INT DEFAULT 1;
+                ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+            ELSE
+                CREATE TABLE quiz_attempts (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    phase_id BIGINT,
+                    course_id BIGINT,
+                    score INT NOT NULL,
+                    total_questions INT NOT NULL DEFAULT 10,
+                    percentage NUMERIC(5,2) NOT NULL,
+                    passed BOOLEAN NOT NULL DEFAULT FALSE,
+                    topic VARCHAR(255),
+                    attempt_number INT DEFAULT 1,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            END IF;
+
+            -- TOPIC_PERFORMANCE
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'topic_performance') THEN
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS user_id BIGINT;
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS course_title VARCHAR(255) DEFAULT '';
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS concept_tag VARCHAR(100) DEFAULT '';
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS times_tested INT DEFAULT 1;
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS times_incorrect INT DEFAULT 0;
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'NEEDS_ATTENTION';
+                ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS last_evaluated_at TIMESTAMPTZ DEFAULT NOW();
+            ELSE
+                CREATE TABLE topic_performance (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT,
+                    course_title VARCHAR(255) NOT NULL,
+                    concept_tag VARCHAR(100) NOT NULL,
+                    times_tested INT DEFAULT 1,
+                    times_incorrect INT DEFAULT 0,
+                    status VARCHAR(50) DEFAULT 'NEEDS_ATTENTION',
+                    last_evaluated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            END IF;
+
+            -- CHAT_SESSIONS
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_sessions') THEN
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS title VARCHAR(255) DEFAULT 'New Session';
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE';
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS context_type VARCHAR(50) DEFAULT 'STUDENT';
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_email VARCHAR(255);
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_id BIGINT;
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+            ELSE
+                CREATE TABLE chat_sessions (
+                    id BIGSERIAL PRIMARY KEY,
+                    title VARCHAR(255) DEFAULT 'New Session',
+                    status VARCHAR(50) DEFAULT 'ACTIVE',
+                    context_type VARCHAR(50) DEFAULT 'STUDENT',
+                    user_email VARCHAR(255),
+                    user_id BIGINT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            END IF;
+
+            -- CHAT_MESSAGES
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages') THEN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'conversation_id') THEN
+                    ALTER TABLE chat_messages ALTER COLUMN conversation_id DROP NOT NULL;
+                END IF;
+
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'id' AND data_type = 'uuid') THEN
+                    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS new_id BIGSERIAL;
+                    FOR r IN (
+                        SELECT constraint_name
+                        FROM information_schema.table_constraints
+                        WHERE table_name = 'chat_messages' AND constraint_type = 'PRIMARY KEY'
+                    ) LOOP
+                        EXECUTE 'ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name) || ' CASCADE';
+                    END LOOP;
+                    ALTER TABLE chat_messages DROP COLUMN IF EXISTS id CASCADE;
+                    ALTER TABLE chat_messages RENAME COLUMN new_id TO id;
+                    ALTER TABLE chat_messages ADD PRIMARY KEY (id);
+                END IF;
+
+                ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS session_id BIGINT;
+                ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sender VARCHAR(50) DEFAULT 'user';
+                ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS content TEXT DEFAULT '';
+                ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW();
+            ELSE
+                CREATE TABLE chat_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    session_id BIGINT,
+                    sender VARCHAR(50) NOT NULL,
+                    content TEXT NOT NULL,
+                    timestamp TIMESTAMPTZ DEFAULT NOW()
+                );
+            END IF;
+
+            -- EMAIL_OTPS
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'email_otps') THEN
+                CREATE TABLE email_otps (
+                    id BIGSERIAL PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    otp_code VARCHAR(10) NOT NULL,
+                    purpose VARCHAR(50) DEFAULT 'VERIFICATION',
+                    attempts INT DEFAULT 0,
+                    is_used BOOLEAN DEFAULT FALSE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            ELSE
+                ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS purpose VARCHAR(50) DEFAULT 'VERIFICATION';
+                ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS attempts INT DEFAULT 0;
+                ALTER TABLE email_otps ADD COLUMN IF NOT EXISTS is_used BOOLEAN DEFAULT FALSE;
+            END IF;
+
+            -- LEARNING_PATHS
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'learning_paths') THEN
+                CREATE TABLE learning_paths (
+                    id BIGSERIAL PRIMARY KEY,
+                    student_id BIGINT,
+                    title VARCHAR(255),
+                    generated_content TEXT
+                );
+            END IF;
+
+            -- SUGGESTED_COURSES
+            IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'suggested_courses') THEN
+                CREATE TABLE suggested_courses (
+                    id BIGSERIAL PRIMARY KEY,
+                    faculty_id BIGINT,
+                    faculty_name VARCHAR(255) NOT NULL,
+                    faculty_email VARCHAR(255) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    target_branch VARCHAR(50) NOT NULL,
+                    target_year VARCHAR(50),
+                    target_semester VARCHAR(50),
+                    priority VARCHAR(50) DEFAULT 'HIGH',
+                    deadline DATE,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            ELSE
+                ALTER TABLE suggested_courses ADD COLUMN IF NOT EXISTS target_year VARCHAR(50);
+                ALTER TABLE suggested_courses ADD COLUMN IF NOT EXISTS target_semester VARCHAR(50);
+                ALTER TABLE suggested_courses ADD COLUMN IF NOT EXISTS priority VARCHAR(50) DEFAULT 'HIGH';
+                ALTER TABLE suggested_courses ADD COLUMN IF NOT EXISTS deadline DATE;
             END IF;
 
             -- 10. PHASE 9: RE-APPLY ALL CLEAN BIGINT FOREIGN KEY CONSTRAINTS

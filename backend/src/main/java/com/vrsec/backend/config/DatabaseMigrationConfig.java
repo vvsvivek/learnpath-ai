@@ -129,6 +129,17 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
             END LOOP;
 
+            -- 1b. DROP ALL LEGACY RESTRICTIVE CHECK CONSTRAINTS ACROSS TABLES
+            FOR r IN (
+                SELECT table_schema, table_name, constraint_name
+                FROM information_schema.table_constraints
+                WHERE constraint_type = 'CHECK'
+                  AND table_name IN ('users', 'chat_messages', 'courses', 'course_phases', 'chat_sessions', 'quiz_attempts', 'topic_performance')
+                  AND constraint_name NOT LIKE '%not_null%'
+            ) LOOP
+                EXECUTE 'ALTER TABLE ' || quote_ident(r.table_schema) || '.' || quote_ident(r.table_name) || ' DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+            END LOOP;
+
             -- 2. PHASE 1: PREPARE BIGINT IDS ON PRIMARY ENTITIES
             IF users_is_uuid THEN ALTER TABLE users ADD COLUMN IF NOT EXISTS new_id BIGSERIAL; END IF;
             IF courses_is_uuid THEN ALTER TABLE courses ADD COLUMN IF NOT EXISTS new_id BIGSERIAL; END IF;
@@ -334,6 +345,9 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
                 ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
                 UPDATE users SET username = split_part(email, '@', 1) WHERE username IS NULL OR username = '';
+                IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'users_role_check') THEN
+                    ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (UPPER(role) IN ('STUDENT', 'FACULTY', 'ADMIN'));
+                END IF;
             ELSE
                 CREATE TABLE users (
                     id BIGSERIAL PRIMARY KEY,

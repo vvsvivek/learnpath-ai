@@ -29,6 +29,7 @@ public class ApiController {
     // =========================================================================
     // 1. AUTH COMPATIBILITY ENDPOINTS (For legacy clients calling /api/main/auth)
     // =========================================================================
+    @Transactional
     @PostMapping({"/auth/send-otp", "/send-otp"})
     public ResponseEntity<?> legacySendOtp(@RequestBody Map<String, String> req) {
         try {
@@ -39,6 +40,7 @@ public class ApiController {
         }
     }
 
+    @Transactional
     @PostMapping({"/auth", "/auth/verify-otp"})
     public ResponseEntity<?> legacyVerifyOtp(@RequestBody Map<String, String> req) {
         try {
@@ -121,6 +123,7 @@ public class ApiController {
     // =========================================================================
     // 3. COURSE SELECTION & EXPLORE CUSTOM COURSE (DYNAMIC LEARNING PATHS)
     // =========================================================================
+    @Transactional
     @PostMapping({"/course/select", "/generate-path", "/course/enroll"})
     public ResponseEntity<?> selectOrGenerateCourse(@RequestBody Map<String, String> req) {
         try {

@@ -520,6 +520,9 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'conversation_id') THEN
                     ALTER TABLE chat_messages ALTER COLUMN conversation_id DROP NOT NULL;
                 END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'message') THEN
+                    ALTER TABLE chat_messages ALTER COLUMN message DROP NOT NULL;
+                END IF;
 
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'id' AND data_type = 'uuid') THEN
                     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS new_id BIGSERIAL;
@@ -687,6 +690,9 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages') THEN
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'conversation_id') THEN
                     ALTER TABLE chat_messages ALTER COLUMN conversation_id DROP NOT NULL;
+                END IF;
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'message') THEN
+                    ALTER TABLE chat_messages ALTER COLUMN message DROP NOT NULL;
                 END IF;
             END IF;
 

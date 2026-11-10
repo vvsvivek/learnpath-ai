@@ -67,28 +67,33 @@ public class QuizController {
             }
             result.put("constraints", constraints);
 
-            boolean needsFix = columns.stream().anyMatch(c -> "correct_option".equals(c.get("column")) && !"character varying".equals(c.get("type")));
-            result.put("needsFix", needsFix);
-            if (needsFix) {
-                conn.setAutoCommit(true);
-                List<String> fixLogs = new ArrayList<>();
-                String[] fixStatements = {
-                    "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS check_correct_option",
-                    "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_correct_option_check",
-                    "ALTER TABLE quiz_questions ALTER COLUMN correct_option DROP DEFAULT",
-                    "ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING CASE WHEN correct_option::text = '0' THEN 'A' WHEN correct_option::text = '1' THEN 'B' WHEN correct_option::text = '2' THEN 'C' WHEN correct_option::text = '3' THEN 'D' ELSE UPPER(correct_option::text) END",
-                    "ALTER TABLE quiz_questions ALTER COLUMN correct_option SET DEFAULT 'A'"
-                };
-                for (String sql : fixStatements) {
-                    try {
-                        stmt.execute(sql);
-                        fixLogs.add("SUCCESS: " + sql);
-                    } catch (Exception ex) {
-                        fixLogs.add("FAILED (" + sql + "): " + ex.getMessage());
-                    }
+            List<String> fixLogs = new ArrayList<>();
+            conn.setAutoCommit(true);
+
+            String[] legacyCleanups = {
+                "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS check_correct_option",
+                "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_correct_option_check",
+                "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_quiz_id_fkey",
+                "ALTER TABLE quiz_questions ALTER COLUMN quiz_id DROP NOT NULL",
+                "ALTER TABLE quiz_questions ALTER COLUMN options DROP NOT NULL",
+                "ALTER TABLE quiz_questions ALTER COLUMN optiona DROP NOT NULL",
+                "ALTER TABLE quiz_questions ALTER COLUMN optionb DROP NOT NULL",
+                "ALTER TABLE quiz_questions ALTER COLUMN optionc DROP NOT NULL",
+                "ALTER TABLE quiz_questions ALTER COLUMN optiond DROP NOT NULL",
+                "ALTER TABLE quiz_questions ALTER COLUMN correct_option DROP DEFAULT",
+                "ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING CASE WHEN correct_option::text = '0' THEN 'A' WHEN correct_option::text = '1' THEN 'B' WHEN correct_option::text = '2' THEN 'C' WHEN correct_option::text = '3' THEN 'D' ELSE UPPER(correct_option::text) END",
+                "ALTER TABLE quiz_questions ALTER COLUMN correct_option SET DEFAULT 'A'"
+            };
+
+            for (String sql : legacyCleanups) {
+                try {
+                    stmt.execute(sql);
+                    fixLogs.add("SUCCESS: " + sql);
+                } catch (Exception ex) {
+                    fixLogs.add("NOTE (" + sql + "): " + ex.getMessage());
                 }
-                result.put("fixLogs", fixLogs);
             }
+            result.put("fixLogs", fixLogs);
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {

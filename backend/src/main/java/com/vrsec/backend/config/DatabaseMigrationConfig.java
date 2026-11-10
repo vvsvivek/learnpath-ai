@@ -58,6 +58,34 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
 
+            // Step 1: Execute individual idempotent DDL/DML cleanup statements outside PL/pgSQL block
+            String[] cleanupSqls = {
+                "ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check",
+                "ALTER TABLE users DROP CONSTRAINT IF EXISTS check_user_role",
+                "ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS chat_messages_sender_check",
+                "ALTER TABLE chat_messages ALTER COLUMN conversation_id DROP NOT NULL",
+                "ALTER TABLE chat_messages ALTER COLUMN message DROP NOT NULL",
+                "ALTER TABLE email_otps ALTER COLUMN used DROP NOT NULL",
+                "ALTER TABLE email_otps ALTER COLUMN is_used DROP NOT NULL",
+                "ALTER TABLE courses ALTER COLUMN deleted DROP NOT NULL",
+                "ALTER TABLE courses ALTER COLUMN is_deleted DROP NOT NULL",
+                "ALTER TABLE courses ALTER COLUMN custom DROP NOT NULL",
+                "ALTER TABLE course_phases ALTER COLUMN unlocked DROP NOT NULL",
+                "ALTER TABLE course_phases ALTER COLUMN completed DROP NOT NULL",
+                "UPDATE users SET role = UPPER(role) WHERE role IS NOT NULL",
+                "ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (UPPER(role) IN ('STUDENT', 'FACULTY', 'ADMIN', 'student', 'faculty', 'admin'))",
+                "INSERT INTO users (email, username, role, branch, academic_year, semester, cgpa, is_email_verified, auth_provider, password) VALUES ('22vr1a0501@vrsec.ac.in', 'Student 22VR1A0501', 'STUDENT', 'CSE', '2nd Year', '1st Sem', 8.50, TRUE, 'EMAIL', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f') ON CONFLICT (email) DO NOTHING",
+                "INSERT INTO users (email, username, role, branch, academic_year, semester, cgpa, is_email_verified, auth_provider, password) VALUES ('hod.cse@siddhartha.ac.in', 'Dr. HOD CSE', 'FACULTY', 'CSE', NULL, NULL, NULL, TRUE, 'EMAIL', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f') ON CONFLICT (email) DO NOTHING"
+            };
+
+            for (String sql : cleanupSqls) {
+                try {
+                    stmt.execute(sql);
+                } catch (Exception ex) {
+                    log.warn("[DB MIGRATION] Pre-step note for '{}': {}", sql, ex.getMessage());
+                }
+            }
+
             stmt.execute(MIGRATION_SQL);
             log.info("[DB MIGRATION] Relational schema migration completed successfully. All keys and foreign relations aligned to BIGINT.");
         } catch (Exception e) {

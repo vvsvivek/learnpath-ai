@@ -57,6 +57,7 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
         log.info("[DB MIGRATION] Executing pre-Hibernate relational schema migration (UUID -> BIGINT)...");
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
+            conn.setAutoCommit(true);
 
             // Step 1: Execute individual idempotent DDL/DML cleanup statements outside PL/pgSQL block
             String[] cleanupSqls = {
@@ -468,6 +469,9 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
 
             -- QUIZ_QUESTIONS
             IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_questions') THEN
+                ALTER TABLE quiz_questions ALTER COLUMN correct_option DROP DEFAULT;
+                ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING CASE WHEN correct_option::text = '0' THEN 'A' WHEN correct_option::text = '1' THEN 'B' WHEN correct_option::text = '2' THEN 'C' WHEN correct_option::text = '3' THEN 'D' ELSE UPPER(correct_option::text) END;
+                ALTER TABLE quiz_questions ALTER COLUMN correct_option SET DEFAULT 'A';
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS phase_id BIGINT;
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS course_id BIGINT;
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_text TEXT DEFAULT '';
@@ -475,6 +479,10 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_b TEXT DEFAULT '';
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_c TEXT DEFAULT '';
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_d TEXT DEFAULT '';
+                ALTER TABLE quiz_questions ALTER COLUMN option_a DROP NOT NULL;
+                ALTER TABLE quiz_questions ALTER COLUMN option_b DROP NOT NULL;
+                ALTER TABLE quiz_questions ALTER COLUMN option_c DROP NOT NULL;
+                ALTER TABLE quiz_questions ALTER COLUMN option_d DROP NOT NULL;
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS correct_option VARCHAR(10) DEFAULT 'A';
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS explanation TEXT DEFAULT '';
                 ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS concept_tag VARCHAR(100);

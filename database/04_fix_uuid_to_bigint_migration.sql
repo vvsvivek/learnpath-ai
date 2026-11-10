@@ -493,7 +493,9 @@ BEGIN
 
     -- QUIZ_QUESTIONS
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_questions') THEN
-        ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING correct_option::text;
+        ALTER TABLE quiz_questions ALTER COLUMN correct_option DROP DEFAULT;
+        ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING CASE WHEN correct_option::text = '0' THEN 'A' WHEN correct_option::text = '1' THEN 'B' WHEN correct_option::text = '2' THEN 'C' WHEN correct_option::text = '3' THEN 'D' ELSE UPPER(correct_option::text) END;
+        ALTER TABLE quiz_questions ALTER COLUMN correct_option SET DEFAULT 'A';
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS phase_id BIGINT;
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS course_id BIGINT;
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_text TEXT DEFAULT '';

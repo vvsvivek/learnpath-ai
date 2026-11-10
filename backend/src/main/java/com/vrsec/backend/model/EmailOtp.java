@@ -22,7 +22,7 @@ public class EmailOtp {
     private int attempts = 0;
 
     @Column(name = "is_used")
-    private boolean used = false;
+    private Boolean used = false;
 
     @Column(nullable = false)
     private LocalDateTime expiresAt;
@@ -59,8 +59,9 @@ public class EmailOtp {
     public int getAttempts() { return attempts; }
     public void setAttempts(int attempts) { this.attempts = attempts; }
 
-    public boolean isUsed() { return used; }
-    public void setUsed(boolean used) { this.used = used; }
+    public boolean isUsed() { return used != null && used; }
+    public Boolean getUsed() { return used; }
+    public void setUsed(Boolean used) { this.used = used != null ? used : false; }
 
     public LocalDateTime getExpiresAt() { return expiresAt; }
     public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }

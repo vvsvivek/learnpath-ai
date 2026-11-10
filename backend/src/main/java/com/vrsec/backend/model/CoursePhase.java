@@ -25,8 +25,8 @@ public class CoursePhase {
 
     private String estimatedDuration = "2-3 Hours";
 
-    private boolean isUnlocked = false;
-    private boolean isCompleted = false;
+    private Boolean isUnlocked = false;
+    private Boolean isCompleted = false;
     private LocalDateTime completedAt;
 
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -45,10 +45,12 @@ public class CoursePhase {
     public void setStudyMaterial(String studyMaterial) { this.studyMaterial = studyMaterial; }
     public String getEstimatedDuration() { return estimatedDuration; }
     public void setEstimatedDuration(String estimatedDuration) { this.estimatedDuration = estimatedDuration; }
-    public boolean isUnlocked() { return isUnlocked; }
-    public void setUnlocked(boolean unlocked) { isUnlocked = unlocked; }
-    public boolean isCompleted() { return isCompleted; }
-    public void setCompleted(boolean completed) { isCompleted = completed; }
+    public boolean isUnlocked() { return isUnlocked != null && isUnlocked; }
+    public Boolean getIsUnlocked() { return isUnlocked; }
+    public void setUnlocked(Boolean unlocked) { isUnlocked = unlocked != null ? unlocked : false; }
+    public boolean isCompleted() { return isCompleted != null && isCompleted; }
+    public Boolean getIsCompleted() { return isCompleted; }
+    public void setCompleted(Boolean completed) { isCompleted = completed != null ? completed : false; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }

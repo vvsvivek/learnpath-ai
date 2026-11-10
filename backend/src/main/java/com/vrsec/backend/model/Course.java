@@ -22,10 +22,10 @@ public class Course {
     private Integer currentPhase = 1;
     private Integer totalPhases = 4;
     @Column(name = "is_custom")
-    private boolean isCustom = false;
+    private Boolean isCustom = false;
 
     @Column(name = "is_deleted")
-    private boolean deleted = false;
+    private Boolean deleted = false;
 
     private LocalDateTime createdAt = LocalDateTime.now();
     private LocalDateTime updatedAt = LocalDateTime.now();
@@ -61,10 +61,12 @@ public class Course {
     public void setCurrentPhase(Integer currentPhase) { this.currentPhase = currentPhase; }
     public Integer getTotalPhases() { return totalPhases; }
     public void setTotalPhases(Integer totalPhases) { this.totalPhases = totalPhases; }
-    public boolean isCustom() { return isCustom; }
-    public void setCustom(boolean custom) { isCustom = custom; }
-    public boolean isDeleted() { return deleted; }
-    public void setDeleted(boolean deleted) { this.deleted = deleted; }
+    public boolean isCustom() { return isCustom != null && isCustom; }
+    public Boolean getIsCustom() { return isCustom; }
+    public void setCustom(Boolean custom) { isCustom = custom != null ? custom : false; }
+    public boolean isDeleted() { return deleted != null && deleted; }
+    public Boolean getDeleted() { return deleted; }
+    public void setDeleted(Boolean deleted) { this.deleted = deleted != null ? deleted : false; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

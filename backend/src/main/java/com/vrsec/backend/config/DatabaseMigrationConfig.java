@@ -641,6 +641,19 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 ALTER TABLE learning_paths ADD CONSTRAINT fk_learning_paths_student FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE;
             END IF;
 
+            -- 10. CLEAN NULL VALUES ON BOOLEAN COLUMNS
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'email_otps') THEN
+                UPDATE email_otps SET is_used = FALSE WHERE is_used IS NULL;
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'courses') THEN
+                UPDATE courses SET is_custom = FALSE WHERE is_custom IS NULL;
+                UPDATE courses SET is_deleted = FALSE WHERE is_deleted IS NULL;
+            END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'course_phases') THEN
+                UPDATE course_phases SET is_unlocked = FALSE WHERE is_unlocked IS NULL;
+                UPDATE course_phases SET is_completed = FALSE WHERE is_completed IS NULL;
+            END IF;
+
             -- 11. PHASE 10: CREATE PERFORMANCE & AUDIT INDEXES
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_courses_user_email ON courses(user_email);

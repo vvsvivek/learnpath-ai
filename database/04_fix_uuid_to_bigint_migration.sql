@@ -707,17 +707,53 @@ BEGIN
         ALTER TABLE learning_paths ADD CONSTRAINT fk_learning_paths_student FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE;
     END IF;
 
-    -- CLEAN NULL VALUES ON BOOLEAN COLUMNS
+    -- CLEAN NULL VALUES AND REMOVE NOT NULL ON LEGACY DUPLICATE COLUMNS
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'email_otps') THEN
-        UPDATE email_otps SET is_used = FALSE WHERE is_used IS NULL;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_otps' AND column_name = 'used') THEN
+            ALTER TABLE email_otps ALTER COLUMN used DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_otps' AND column_name = 'is_used') THEN
+            ALTER TABLE email_otps ALTER COLUMN is_used DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_otps' AND column_name = 'used') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_otps' AND column_name = 'is_used') THEN
+            UPDATE email_otps SET is_used = COALESCE(is_used, used, FALSE), used = COALESCE(used, is_used, FALSE);
+        ELSE
+            UPDATE email_otps SET is_used = FALSE WHERE is_used IS NULL;
+        END IF;
     END IF;
+
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'courses') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courses' AND column_name = 'deleted') THEN
+            ALTER TABLE courses ALTER COLUMN deleted DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courses' AND column_name = 'is_deleted') THEN
+            ALTER TABLE courses ALTER COLUMN is_deleted DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courses' AND column_name = 'custom') THEN
+            ALTER TABLE courses ALTER COLUMN custom DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'courses' AND column_name = 'is_custom') THEN
+            ALTER TABLE courses ALTER COLUMN is_custom DROP NOT NULL;
+        END IF;
         UPDATE courses SET is_custom = FALSE WHERE is_custom IS NULL;
         UPDATE courses SET is_deleted = FALSE WHERE is_deleted IS NULL;
     END IF;
+
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'course_phases') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'course_phases' AND column_name = 'unlocked') THEN
+            ALTER TABLE course_phases ALTER COLUMN unlocked DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'course_phases' AND column_name = 'completed') THEN
+            ALTER TABLE course_phases ALTER COLUMN completed DROP NOT NULL;
+        END IF;
         UPDATE course_phases SET is_unlocked = FALSE WHERE is_unlocked IS NULL;
         UPDATE course_phases SET is_completed = FALSE WHERE is_completed IS NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'conversation_id') THEN
+            ALTER TABLE chat_messages ALTER COLUMN conversation_id DROP NOT NULL;
+        END IF;
     END IF;
 
     -- -------------------------------------------------------------

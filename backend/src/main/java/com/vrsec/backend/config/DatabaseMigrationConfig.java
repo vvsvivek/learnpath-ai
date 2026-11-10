@@ -524,6 +524,15 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                     ALTER TABLE chat_messages ALTER COLUMN message DROP NOT NULL;
                 END IF;
 
+                -- Drop any legacy check constraints on chat_messages (e.g. chat_messages_sender_check)
+                FOR r IN (
+                    SELECT constraint_name
+                    FROM information_schema.table_constraints
+                    WHERE table_name = 'chat_messages' AND constraint_type = 'CHECK'
+                ) LOOP
+                    EXECUTE 'ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+                END LOOP;
+
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'id' AND data_type = 'uuid') THEN
                     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS new_id BIGSERIAL;
                     FOR r IN (
@@ -694,6 +703,15 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'chat_messages' AND column_name = 'message') THEN
                     ALTER TABLE chat_messages ALTER COLUMN message DROP NOT NULL;
                 END IF;
+
+                -- Drop any legacy check constraints on chat_messages (e.g. chat_messages_sender_check)
+                FOR r IN (
+                    SELECT constraint_name
+                    FROM information_schema.table_constraints
+                    WHERE table_name = 'chat_messages' AND constraint_type = 'CHECK'
+                ) LOOP
+                    EXECUTE 'ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+                END LOOP;
             END IF;
 
             -- 11. PHASE 10: CREATE PERFORMANCE & AUDIT INDEXES

@@ -493,6 +493,7 @@ BEGIN
 
     -- QUIZ_QUESTIONS
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quiz_questions') THEN
+        ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING correct_option::text;
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS phase_id BIGINT;
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS course_id BIGINT;
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS question_text TEXT DEFAULT '';
@@ -500,6 +501,10 @@ BEGIN
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_b TEXT DEFAULT '';
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_c TEXT DEFAULT '';
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS option_d TEXT DEFAULT '';
+        ALTER TABLE quiz_questions ALTER COLUMN option_a DROP NOT NULL;
+        ALTER TABLE quiz_questions ALTER COLUMN option_b DROP NOT NULL;
+        ALTER TABLE quiz_questions ALTER COLUMN option_c DROP NOT NULL;
+        ALTER TABLE quiz_questions ALTER COLUMN option_d DROP NOT NULL;
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS correct_option VARCHAR(10) DEFAULT 'A';
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS explanation TEXT DEFAULT '';
         ALTER TABLE quiz_questions ADD COLUMN IF NOT EXISTS concept_tag VARCHAR(100);

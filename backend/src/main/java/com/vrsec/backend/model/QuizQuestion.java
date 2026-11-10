@@ -21,28 +21,29 @@ public class QuizQuestion {
     @JsonIgnore
     private Course course;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(name = "question_text", columnDefinition = "TEXT", nullable = false)
     private String questionText;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(name = "option_a", columnDefinition = "TEXT", nullable = false)
     private String optionA;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(name = "option_b", columnDefinition = "TEXT", nullable = false)
     private String optionB;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(name = "option_c", columnDefinition = "TEXT", nullable = false)
     private String optionC;
 
-    @Column(columnDefinition = "TEXT", nullable = false)
+    @Column(name = "option_d", columnDefinition = "TEXT", nullable = false)
     private String optionD;
 
     // Secure: Correct option is hidden from student queries before submission
-    @Column(length = 10, nullable = false)
+    @Column(name = "correct_option", length = 10, nullable = false)
     private String correctOption; // "A", "B", "C", "D"
 
     @Column(columnDefinition = "TEXT", nullable = false)
     private String explanation;
 
+    @Column(name = "concept_tag")
     private String conceptTag;
 
     private LocalDateTime createdAt = LocalDateTime.now();

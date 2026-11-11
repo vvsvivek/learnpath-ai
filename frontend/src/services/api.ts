@@ -105,8 +105,10 @@ export const api = {
   },
 
   // 2. Student Dashboard & Courses
-  getDashboard: async (email: string) => {
-    return await request(`/api/main/dashboard?email=${encodeURIComponent(email)}`);
+  getDashboard: async (email?: string, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return await request(`/api/main/dashboard${email ? `?email=${encodeURIComponent(email)}` : ''}`, { headers });
   },
 
   getCatalogue: async (params?: {
@@ -129,22 +131,30 @@ export const api = {
     return await request(`/api/main/catalogue?${q.toString()}`);
   },
 
-  selectCourse: async (email: string, subject: string, approvedCourseId?: number) => {
+  selectCourse: async (email: string, subject: string, approvedCourseId?: number, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
     return await request('/api/main/course/select', {
       method: 'POST',
+      headers,
       body: { email, subject, approvedCourseId },
     });
   },
 
-  requestCourse: async (email: string, title: string, reason?: string) => {
+  requestCourse: async (email: string, title: string, reason?: string, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
     return await request('/api/main/course/request', {
       method: 'POST',
+      headers,
       body: { email, title, reason },
     });
   },
 
-  getCourseRequests: async (email?: string) => {
-    return await request(`/api/main/course/requests${email ? `?email=${encodeURIComponent(email)}` : ''}`);
+  getCourseRequests: async (email?: string, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    return await request(`/api/main/course/requests${email ? `?email=${encodeURIComponent(email)}` : ''}`, { headers });
   },
 
   generatePath: async (email: string, subject: string) => {
@@ -162,16 +172,22 @@ export const api = {
     return await request(`/api/main/phase/details?${params.toString()}`);
   },
 
-  toggleCourseDelete: async (courseId: number, isDeleted: boolean) => {
+  toggleCourseDelete: async (courseId: number, isDeleted: boolean, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
     return await request('/api/main/course/toggle-delete', {
       method: 'POST',
+      headers,
       body: { courseId, isDeleted },
     });
   },
 
-  updateProfile: async (profile: any) => {
+  updateProfile: async (profile: any, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
     return await request('/api/main/profile/update', {
       method: 'POST',
+      headers,
       body: profile,
     });
   },
@@ -191,9 +207,12 @@ export const api = {
     subject?: string;
     phaseNumber: number;
     answers: Record<number, string>;
-  }) => {
+  }, token?: string) => {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
     return await request('/api/main/quiz/submit', {
       method: 'POST',
+      headers,
       body: payload,
     });
   },

@@ -6,8 +6,10 @@ import com.vrsec.backend.model.User;
 import com.vrsec.backend.repository.CoursePhaseRepository;
 import com.vrsec.backend.repository.CourseRepository;
 import com.vrsec.backend.repository.UserRepository;
+import com.vrsec.backend.service.JwtService;
 import com.vrsec.backend.service.LearningPathService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,6 +28,7 @@ public class QuizController {
     @Autowired private CourseRepository courseRepository;
     @Autowired private CoursePhaseRepository phaseRepository;
     @Autowired private UserRepository userRepository;
+    @Autowired private JwtService jwtService;
     @Autowired private DataSource dataSource;
 
     /**
@@ -233,14 +236,33 @@ public class QuizController {
     /**
      * Submits quiz answers for server-side evaluation.
      * Enforces the STRICT > 60% rule: score / 10 > 0.60 (7 or more correct answers required).
+     * SECURITY: Requires verified student JWT. Enforces that caller owns the course.
      */
     @PostMapping("/submit")
-    public ResponseEntity<?> submitQuiz(@RequestBody Map<String, Object> req) {
+    public ResponseEntity<?> submitQuiz(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody Map<String, Object> req) {
         try {
-            String email = (String) req.get("email");
-            if (email == null) return ResponseEntity.badRequest().body(Collections.singletonMap("error", "Email is required."));
-            User student = userRepository.findByEmail(email.trim().toLowerCase())
-                    .orElseThrow(() -> new IllegalArgumentException("Student not found."));
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header. A valid bearer token is required to submit a quiz."));
+            }
+
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null || claims.get("sub") == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String authEmail = claims.get("sub").toString().trim().toLowerCase();
+            User student = userRepository.findByEmail(authEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("Authenticated student not found: " + authEmail));
+
+            if (!"STUDENT".equalsIgnoreCase(student.getRole())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
+                        "Access denied: Quizzes can only be submitted by students."));
+            }
 
             Long courseId = null;
             if (req.get("courseId") != null) {
@@ -254,6 +276,14 @@ public class QuizController {
 
             if (courseId == null) {
                 return ResponseEntity.badRequest().body(Collections.singletonMap("error", "Course ID not found."));
+            }
+
+            // Verify course ownership
+            Course course = courseRepository.findById(courseId)
+                    .orElseThrow(() -> new IllegalArgumentException("Course not found."));
+            if (course.getUserEmail() != null && !course.getUserEmail().equalsIgnoreCase(student.getEmail())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
+                        "Access denied: You do not own this course. Cross-student quiz submissions are strictly forbidden."));
             }
 
             Integer phaseNumber = req.get("phaseNumber") != null ? Integer.valueOf(req.get("phaseNumber").toString()) : 1;

@@ -4,6 +4,7 @@ import com.vrsec.backend.controller.ApiController;
 import com.vrsec.backend.model.*;
 import com.vrsec.backend.repository.*;
 import com.vrsec.backend.service.AuthService;
+import com.vrsec.backend.service.JwtService;
 import com.vrsec.backend.service.LearningPathService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ public class RecommendationAndProfileTest {
     private ApiController apiController;
     private LearningPathService learningPathService;
     private AuthService authService;
+    private JwtService jwtService;
 
     private Map<String, User> userDb;
     private Map<Long, Course> courseDb;
@@ -118,6 +120,10 @@ public class RecommendationAndProfileTest {
         ReflectionTestUtils.setField(apiController, "courseRepository", courseRepository);
         ReflectionTestUtils.setField(apiController, "learningPathService", learningPathService);
         ReflectionTestUtils.setField(apiController, "authService", authService);
+
+        jwtService = new JwtService();
+        jwtService.init();
+        ReflectionTestUtils.setField(apiController, "jwtService", jwtService);
     }
 
     // =========================================================================
@@ -143,7 +149,8 @@ public class RecommendationAndProfileTest {
         req.put("semester", "1st Sem");
         req.put("cgpa", "8.75");
 
-        ResponseEntity<?> response = apiController.updateProfile(req);
+        String token = "Bearer " + jwtService.generateToken(email, "STUDENT", 1L);
+        ResponseEntity<?> response = apiController.updateProfile(token, req);
         assertEquals(HttpStatus.OK, response.getStatusCode());
 
         User updated = userDb.get(email);
@@ -330,7 +337,8 @@ public class RecommendationAndProfileTest {
         updateReq.put("semester", "1st Sem");
         updateReq.put("cgpa", "8.00");
 
-        ResponseEntity<?> response = apiController.updateProfile(updateReq);
+        String token = "Bearer " + jwtService.generateToken(email, "STUDENT", 1L);
+        ResponseEntity<?> response = apiController.updateProfile(token, updateReq);
         assertEquals(HttpStatus.OK, response.getStatusCode());
 
         User refreshedUser = userDb.get(email);
@@ -354,38 +362,40 @@ public class RecommendationAndProfileTest {
         user.setRole("STUDENT");
         userDb.put(email, user);
 
+        String token = "Bearer " + jwtService.generateToken(email, "STUDENT", 1L);
+
         // A. Negative CGPA
         Map<String, Object> req1 = Map.of("email", email, "cgpa", "-0.50");
-        ResponseEntity<?> res1 = apiController.updateProfile(req1);
+        ResponseEntity<?> res1 = apiController.updateProfile(token, req1);
         assertEquals(HttpStatus.BAD_REQUEST, res1.getStatusCode());
         assertTrue(res1.getBody().toString().contains("between 0.00 and 10.00"));
 
         // B. CGPA above 10.00
         Map<String, Object> req2 = Map.of("email", email, "cgpa", "10.05");
-        ResponseEntity<?> res2 = apiController.updateProfile(req2);
+        ResponseEntity<?> res2 = apiController.updateProfile(token, req2);
         assertEquals(HttpStatus.BAD_REQUEST, res2.getStatusCode());
         assertTrue(res2.getBody().toString().contains("between 0.00 and 10.00"));
 
         // C. Non-numeric CGPA
         Map<String, Object> req3 = Map.of("email", email, "cgpa", "nine_point_five");
-        ResponseEntity<?> res3 = apiController.updateProfile(req3);
+        ResponseEntity<?> res3 = apiController.updateProfile(token, req3);
         assertEquals(HttpStatus.BAD_REQUEST, res3.getStatusCode());
         assertTrue(res3.getBody().toString().contains("valid numerical value"));
 
         // D. More than 2 decimal places
         Map<String, Object> req4 = Map.of("email", email, "cgpa", "8.756");
-        ResponseEntity<?> res4 = apiController.updateProfile(req4);
+        ResponseEntity<?> res4 = apiController.updateProfile(token, req4);
         assertEquals(HttpStatus.BAD_REQUEST, res4.getStatusCode());
         assertTrue(res4.getBody().toString().contains("2 decimal places only"));
 
         // E. Valid boundaries: 0.00 and 10.00
         Map<String, Object> req5 = Map.of("email", email, "cgpa", "0.00");
-        ResponseEntity<?> res5 = apiController.updateProfile(req5);
+        ResponseEntity<?> res5 = apiController.updateProfile(token, req5);
         assertEquals(HttpStatus.OK, res5.getStatusCode());
         assertEquals(0.00, userDb.get(email).getCgpa());
 
         Map<String, Object> req6 = Map.of("email", email, "cgpa", "10.00");
-        ResponseEntity<?> res6 = apiController.updateProfile(req6);
+        ResponseEntity<?> res6 = apiController.updateProfile(token, req6);
         assertEquals(HttpStatus.OK, res6.getStatusCode());
         assertEquals(10.00, userDb.get(email).getCgpa());
     }
@@ -412,7 +422,8 @@ public class RecommendationAndProfileTest {
         updateOnlyCgpa.put("email", email);
         updateOnlyCgpa.put("cgpa", "8.45");
 
-        ResponseEntity<?> response = apiController.updateProfile(updateOnlyCgpa);
+        String token = "Bearer " + jwtService.generateToken(email, "STUDENT", 45L);
+        ResponseEntity<?> response = apiController.updateProfile(token, updateOnlyCgpa);
         assertEquals(HttpStatus.OK, response.getStatusCode());
 
         User updated = userDb.get(email);

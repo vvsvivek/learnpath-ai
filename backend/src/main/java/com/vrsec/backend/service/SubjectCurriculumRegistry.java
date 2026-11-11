@@ -7,25 +7,38 @@ import java.util.*;
 public class SubjectCurriculumRegistry {
 
     /**
+     * The exact 12 core engineering subjects verified against autonomous college
+     * regulation syllabi (VR20 regulations). All other courses in the catalogue
+     * are domain-synthesized blueprints adhering to AICTE model guidelines.
+     */
+    public static final Set<String> VERIFIED_SYLLABUS_COURSES = Set.of(
+            "Data Structures & Algorithmic Complexity",
+            "Engineering Mathematics & Calculus",
+            "Digital Logic Design & Verilog Modeling",
+            "Engineering Physics & Semiconductor Basics",
+            "Mechanics of Solids & Strength of Materials",
+            "Fluid Mechanics & Hydraulic Machinery",
+            "Operating Systems & Kernel Process Modeling",
+            "Database Management Systems & SQL Mastery",
+            "Computer Networks & Protocol Architectures",
+            "Environmental Engineering & Wastewater Treatment",
+            "Thermodynamics & Heat Transfer Fundamentals",
+            "Python Programming for Engineering Applications"
+    );
+
+    /**
      * Checks whether a subject matches one of the 12 syllabus-verified core engineering subjects
-     * with validated university syllabi (VR20 / autonomous syllabus).
-     * Courses returning false use AICTE model curriculum or domain-synthesized blueprints.
+     * with validated university syllabi.
      */
     public static boolean isSyllabusVerified(String rawSubject) {
         if (rawSubject == null) return false;
-        String s = rawSubject.trim().toLowerCase();
-        return (s.contains("data struct") || s.contains("dsa") || (s.contains("algorithm") && !s.contains("machine") && !s.contains("design & analysis")))
-                || (s.contains("math") || s.contains("calculus") || s.contains("algebra") || s.contains("differential equation"))
-                || (s.contains("digital") || s.contains("logic design") || s.contains("verilog") || (s.contains("electronic") && !s.contains("power")))
-                || (s.contains("physic") || s.contains("optics") || s.contains("laser") || s.contains("semiconductor"))
-                || (s.contains("solid") || (s.contains("mechanic") && !s.contains("fluid") && !s.contains("quantum")) || s.contains("strength of material"))
-                || (s.contains("fluid") || s.contains("hydraulic"))
-                || (s.contains("operating system") || s.contains("os &") || s.contains("kernel"))
-                || (s.contains("database") || s.contains("dbms") || s.contains("sql"))
-                || (s.contains("network") && !s.contains("neural"))
-                || (s.contains("environment") || s.contains("ecology") || s.contains("pollution"))
-                || (s.contains("thermodynamic") || s.contains("heat transfer"))
-                || (s.contains("python"));
+        String s = rawSubject.trim();
+        for (String verified : VERIFIED_SYLLABUS_COURSES) {
+            if (verified.equalsIgnoreCase(s)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static List<Map<String, Object>> getCurriculumForSubject(String rawSubject, User student) {

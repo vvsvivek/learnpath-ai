@@ -575,6 +575,12 @@ public class LearningPathService {
     public Map<String, Object> submitQuizAnswers(User student, Long courseId, Integer phaseNumber, Map<Long, String> submittedAnswers) {
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new IllegalArgumentException("Course not found."));
+
+        // OWNERSHIP & PRIVACY AUDIT: Ensure student owns the course being evaluated
+        if (student != null && course.getUserEmail() != null && !course.getUserEmail().equalsIgnoreCase(student.getEmail())) {
+            throw new IllegalArgumentException("Access denied: You do not own this course. Cross-student quiz submissions are strictly forbidden.");
+        }
+
         CoursePhase phase = phaseRepository.findByCourseIdAndPhaseNumber(courseId, phaseNumber)
                 .orElseThrow(() -> new IllegalArgumentException("Phase not found."));
 

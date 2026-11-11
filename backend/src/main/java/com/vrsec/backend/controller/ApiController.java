@@ -74,18 +74,69 @@ public class ApiController {
     // 2. STUDENT DASHBOARD (Real DB records, Dynamic Recommendations)
     // =========================================================================
     @GetMapping({"/dashboard", "/student/dashboard"})
-    public ResponseEntity<?> getDashboard(@RequestParam String email) {
+    public ResponseEntity<?> getDashboard(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(required = false) String email) {
         try {
             String cleanEmail = email != null ? email.trim().toLowerCase() : "";
-            User student = userRepository.findByEmail(cleanEmail)
-                    .orElseThrow(() -> new IllegalArgumentException("User not found: " + cleanEmail));
 
-            List<Course> allCourses = courseRepository.findByUserEmailIgnoreCase(cleanEmail);
+            // Deployment healthcheck exemption (Render free-tier monitor)
+            if ("healthcheck".equalsIgnoreCase(cleanEmail)) {
+                return ResponseEntity.ok(Collections.singletonMap("status", "UP"));
+            }
+
+            // PRIVACY & AUTHENTICATION ENFORCEMENT:
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header. A valid bearer token is required to access the dashboard."));
+            }
+
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String tokenEmail = (String) claims.get("sub");
+            if (tokenEmail == null || tokenEmail.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Token missing subject claim."));
+            }
+
+            String authEmail = tokenEmail.trim().toLowerCase();
+            User authenticatedUser = userRepository.findByEmail(authEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("Authenticated user not found."));
+
+            boolean isFacultyOrAdmin = "FACULTY".equalsIgnoreCase(authenticatedUser.getRole())
+                    || "ADMIN".equalsIgnoreCase(authenticatedUser.getRole())
+                    || (authService != null && authService.isEligibleFacultyEmail(authEmail));
+
+            // Privacy isolation: Students can strictly only view their own dashboard
+            String targetEmail = authEmail;
+            if (cleanEmail != null && !cleanEmail.isEmpty()) {
+                if (!cleanEmail.equalsIgnoreCase(authEmail)) {
+                    if (!isFacultyOrAdmin) {
+                        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
+                                "Access denied: Students can only view their own dashboard. Accessing another student's profile, courses, and quiz records is forbidden."));
+                    }
+                    targetEmail = cleanEmail;
+                }
+            }
+
+            final String effectiveTargetEmail = targetEmail;
+            User student = userRepository.findByEmail(effectiveTargetEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found: " + effectiveTargetEmail));
+
+            List<Course> allCourses = courseRepository != null ? courseRepository.findByUserEmailIgnoreCase(effectiveTargetEmail) : Collections.emptyList();
+            if (allCourses == null) allCourses = Collections.emptyList();
             List<Course> activeCourses = allCourses.stream().filter(c -> !c.isDeleted()).collect(Collectors.toList());
             List<Course> deletedCourses = allCourses.stream().filter(Course::isDeleted).collect(Collectors.toList());
 
-            List<QuizAttempt> userAttempts = quizAttemptRepository.findByUserIdOrderByCreatedAtDesc(student.getId());
-            List<TopicPerformance> weakTopics = topicPerformanceRepository.findByUserIdAndStatus(student.getId(), "NEEDS_ATTENTION");
+            List<QuizAttempt> userAttempts = quizAttemptRepository != null ? quizAttemptRepository.findByUserIdOrderByCreatedAtDesc(student.getId()) : Collections.emptyList();
+            if (userAttempts == null) userAttempts = Collections.emptyList();
+            List<TopicPerformance> weakTopics = topicPerformanceRepository != null ? topicPerformanceRepository.findByUserIdAndStatus(student.getId(), "NEEDS_ATTENTION") : Collections.emptyList();
+            if (weakTopics == null) weakTopics = Collections.emptyList();
 
             // Format active courses with phase details
             List<Map<String, Object>> formattedCourses = new ArrayList<>();
@@ -223,18 +274,34 @@ public class ApiController {
     /**
      * Enrolls student in a course ONLY IF it exists in the approved catalogue.
      * Rejects personal names, random phrases, and unapproved courses.
+     * SECURITY: Requires valid student Bearer JWT. Derives identity strictly from token.
      */
     @Transactional
     @PostMapping({"/course/select", "/generate-path", "/course/enroll"})
-    public ResponseEntity<?> selectOrGenerateCourse(@RequestBody Map<String, Object> req) {
+    public ResponseEntity<?> selectOrGenerateCourse(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody Map<String, Object> req) {
         try {
-            String email = (String) req.get("email");
-            if (email == null || email.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body(Collections.singletonMap("error", "Email is required."));
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header. A valid bearer token is required to select or enroll in a course."));
             }
 
-            User student = userRepository.findByEmail(email.trim().toLowerCase())
-                    .orElseThrow(() -> new IllegalArgumentException("Student not found."));
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null || claims.get("sub") == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String authEmail = claims.get("sub").toString().trim().toLowerCase();
+            User student = userRepository.findByEmail(authEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("Student not found for authenticated token: " + authEmail));
+
+            if (!"STUDENT".equalsIgnoreCase(student.getRole())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
+                        "Access denied: Only students can enroll in courses or generate learning paths. Faculty and administrator accounts cannot enroll."));
+            }
 
             // Look up approved course
             ApprovedCourse approvedCourse = null;
@@ -319,25 +386,50 @@ public class ApiController {
     /**
      * Submits a Course Request when a student cannot find a course in the approved catalogue.
      * Saved as PENDING for faculty review. Does NOT generate a learning path.
+     * SECURITY: Requires verified student JWT. Ignores email in request body.
      */
     @Transactional
     @PostMapping("/course/request")
-    public ResponseEntity<?> requestCourse(@RequestBody Map<String, String> req) {
+    public ResponseEntity<?> requestCourse(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody Map<String, String> req) {
         try {
-            String email = req.get("email");
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header. A valid bearer token is required to submit a course request."));
+            }
+
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String tokenEmail = (String) claims.get("sub");
+            if (tokenEmail == null || tokenEmail.trim().isEmpty()) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Token missing subject claim."));
+            }
+
+            String authEmail = tokenEmail.trim().toLowerCase();
+            User student = userRepository.findByEmail(authEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("Student not found for authenticated token: " + authEmail));
+
+            // Prevent faculty accounts from submitting student course requests
+            if (!"STUDENT".equalsIgnoreCase(student.getRole())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
+                        "Access denied: Course requests can only be submitted by students. Faculty and administrator accounts cannot submit student course requests."));
+            }
+
+            // Title and reason validation (ignore any email in request body)
             String title = req.get("title");
             if (title == null) title = req.get("suggestedTitle");
             String reason = req.get("reason");
 
-            if (email == null || email.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body(Collections.singletonMap("error", "Email is required."));
-            }
             if (title == null || title.trim().length() < 3) {
                 return ResponseEntity.badRequest().body(Collections.singletonMap("error", "A valid course title (at least 3 characters) is required."));
             }
-
-            User student = userRepository.findByEmail(email.trim().toLowerCase())
-                    .orElseThrow(() -> new IllegalArgumentException("Student not found."));
 
             String cleanTitle = title.trim();
 
@@ -381,16 +473,44 @@ public class ApiController {
     }
 
     /**
-     * Retrieves course requests for a student or administrator.
+     * Retrieves course requests. Students can strictly only view their own requests;
+     * authorized faculty/admins can view all requests or filter by student email.
      */
     @GetMapping("/course/requests")
-    public ResponseEntity<?> getCourseRequests(@RequestParam(required = false) String email) {
+    public ResponseEntity<?> getCourseRequests(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(required = false) String email) {
         try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header."));
+            }
+
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null || claims.get("sub") == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String authEmail = claims.get("sub").toString().trim().toLowerCase();
+            User caller = userRepository.findByEmail(authEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found for authenticated token."));
+
+            boolean isFacultyOrAdmin = "FACULTY".equalsIgnoreCase(caller.getRole())
+                    || "ADMIN".equalsIgnoreCase(caller.getRole())
+                    || (authService != null && authService.isEligibleFacultyEmail(authEmail));
+
             List<CourseRequest> list;
-            if (email != null && !email.trim().isEmpty()) {
-                list = courseRequestRepository.findByStudentEmailIgnoreCaseOrderByCreatedAtDesc(email.trim().toLowerCase());
+            if (!isFacultyOrAdmin) {
+                // Students can strictly only view their own submitted course requests!
+                list = courseRequestRepository.findByStudentEmailIgnoreCaseOrderByCreatedAtDesc(authEmail);
             } else {
-                list = courseRequestRepository.findAllByOrderByCreatedAtDesc();
+                if (email != null && !email.trim().isEmpty()) {
+                    list = courseRequestRepository.findByStudentEmailIgnoreCaseOrderByCreatedAtDesc(email.trim().toLowerCase());
+                } else {
+                    list = courseRequestRepository.findAllByOrderByCreatedAtDesc();
+                }
             }
             return ResponseEntity.ok(list);
         } catch (Exception e) {
@@ -528,77 +648,119 @@ public class ApiController {
 
     @Transactional
     @PostMapping("/course/toggle-delete")
-    public ResponseEntity<?> toggleCourseDelete(@RequestBody Map<String, Object> req) {
+    public ResponseEntity<?> toggleCourseDelete(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody Map<String, Object> req) {
         try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header."));
+            }
+
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null || claims.get("sub") == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String authEmail = claims.get("sub").toString().trim().toLowerCase();
             Long courseId = Long.valueOf(req.get("courseId").toString());
             boolean isDeleted = req.containsKey("isDeleted") ? (Boolean) req.get("isDeleted") : true;
             Optional<Course> opt = courseRepository.findById(courseId);
             if (opt.isPresent()) {
                 Course c = opt.get();
+                if (c.getUserEmail() != null && !c.getUserEmail().equalsIgnoreCase(authEmail)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
+                            "Access denied: You do not own this course. Cross-student course modification is forbidden."));
+                }
                 c.setDeleted(isDeleted);
                 courseRepository.save(c);
                 return ResponseEntity.ok(Collections.singletonMap("message", "Course visibility updated"));
             }
-            return ResponseEntity.status(404).build();
+            return ResponseEntity.status(404).body(Collections.singletonMap("error", "Course not found"));
         } catch (Exception e) {
-            return ResponseEntity.status(500).build();
+            return ResponseEntity.status(500).body(Collections.singletonMap("error", e.getMessage()));
         }
     }
 
     // =========================================================================
-    // 4. PROFILE UPDATE
+    // 4. PROFILE UPDATE (Requirement 2: Identity & Authorization Hardening)
     // =========================================================================
     @Transactional
     @PostMapping("/profile/update")
-    public ResponseEntity<?> updateProfile(@RequestBody Map<String, Object> req) {
+    public ResponseEntity<?> updateProfile(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody Map<String, Object> req) {
         try {
-            String email = (String) req.get("email");
-            if (email == null || email.trim().isEmpty()) {
-                return ResponseEntity.badRequest().body(Collections.singletonMap("error", "Email is required."));
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication required: Missing or invalid Authorization header. A valid bearer token is required to update profile."));
             }
-            User user = userRepository.findByEmail(email.trim().toLowerCase())
-                    .orElseThrow(() -> new IllegalArgumentException("User not found: " + email));
+
+            String token = authHeader.substring(7).trim();
+            Map<String, Object> claims = jwtService.validateAndExtractClaims(token);
+            if (claims == null || claims.get("sub") == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Collections.singletonMap("error",
+                        "Authentication failed: Invalid or expired authentication token."));
+            }
+
+            String authEmail = claims.get("sub").toString().trim().toLowerCase();
+            User caller = userRepository.findByEmail(authEmail)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found for authenticated token: " + authEmail));
+
+            // Profile owner is derived EXCLUSIVELY from the verified JWT.
+            // Any email supplied in the request body is strictly ignored.
+            // Students can only update their own profile; faculty cannot modify a student's profile or CGPA.
+            User user = caller;
 
             if (req.get("username") != null && !req.get("username").toString().trim().isEmpty()) {
                 user.setUsername(req.get("username").toString().trim());
             }
-            if (req.get("branch") != null && !req.get("branch").toString().trim().isEmpty()) {
-                user.setBranch(req.get("branch").toString().trim().toUpperCase());
-            }
-            if (req.get("academicYear") != null && !req.get("academicYear").toString().trim().isEmpty()) {
-                user.setAcademicYear(req.get("academicYear").toString().trim());
-            } else if (req.get("year") != null && !req.get("year").toString().trim().isEmpty()) {
-                user.setAcademicYear(req.get("year").toString().trim());
-            }
-            if (req.get("semester") != null && !req.get("semester").toString().trim().isEmpty()) {
-                user.setSemester(req.get("semester").toString().trim());
-            } else if (req.get("sem") != null && !req.get("sem").toString().trim().isEmpty()) {
-                user.setSemester(req.get("sem").toString().trim());
-            }
 
-            if (req.containsKey("cgpa") && req.get("cgpa") != null) {
-                String cgpaStr = req.get("cgpa").toString().trim();
-                if (cgpaStr.isEmpty()) {
-                    throw new IllegalArgumentException("CGPA cannot be empty. Please enter a valid number between 0.00 and 10.00.");
+            if ("STUDENT".equalsIgnoreCase(user.getRole())) {
+                if (req.get("branch") != null && !req.get("branch").toString().trim().isEmpty()) {
+                    user.setBranch(req.get("branch").toString().trim().toUpperCase());
                 }
-                double parsed;
-                try {
-                    parsed = Double.parseDouble(cgpaStr);
-                } catch (NumberFormatException e) {
-                    throw new IllegalArgumentException("Invalid CGPA format. Please enter a valid numerical value between 0.00 and 10.00.");
+                if (req.get("academicYear") != null && !req.get("academicYear").toString().trim().isEmpty()) {
+                    user.setAcademicYear(req.get("academicYear").toString().trim());
+                } else if (req.get("year") != null && !req.get("year").toString().trim().isEmpty()) {
+                    user.setAcademicYear(req.get("year").toString().trim());
                 }
-                if (Double.isNaN(parsed) || Double.isInfinite(parsed)) {
-                    throw new IllegalArgumentException("Invalid CGPA value.");
+                if (req.get("semester") != null && !req.get("semester").toString().trim().isEmpty()) {
+                    user.setSemester(req.get("semester").toString().trim());
+                } else if (req.get("sem") != null && !req.get("sem").toString().trim().isEmpty()) {
+                    user.setSemester(req.get("sem").toString().trim());
                 }
-                if (parsed < 0.0 || parsed > 10.0) {
-                    throw new IllegalArgumentException("CGPA must be between 0.00 and 10.00.");
+
+                if (req.containsKey("cgpa") && req.get("cgpa") != null) {
+                    String cgpaStr = req.get("cgpa").toString().trim();
+                    if (cgpaStr.isEmpty()) {
+                        throw new IllegalArgumentException("CGPA cannot be empty. Please enter a valid number between 0.00 and 10.00.");
+                    }
+                    double parsed;
+                    try {
+                        parsed = Double.parseDouble(cgpaStr);
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Invalid CGPA format. Please enter a valid numerical value between 0.00 and 10.00.");
+                    }
+                    if (Double.isNaN(parsed) || Double.isInfinite(parsed)) {
+                        throw new IllegalArgumentException("Invalid CGPA value.");
+                    }
+                    if (parsed < 0.0 || parsed > 10.0) {
+                        throw new IllegalArgumentException("CGPA must be between 0.00 and 10.00.");
+                    }
+                    int dotIdx = cgpaStr.indexOf('.');
+                    if (dotIdx >= 0 && (cgpaStr.length() - dotIdx - 1) > 2) {
+                        throw new IllegalArgumentException("CGPA allows up to 2 decimal places only.");
+                    }
+                    double rounded = Math.round(parsed * 100.0) / 100.0;
+                    user.setCgpa(rounded);
                 }
-                int dotIdx = cgpaStr.indexOf('.');
-                if (dotIdx >= 0 && (cgpaStr.length() - dotIdx - 1) > 2) {
-                    throw new IllegalArgumentException("CGPA allows up to 2 decimal places only.");
+            } else {
+                if (req.containsKey("cgpa") && req.get("cgpa") != null) {
+                    throw new IllegalArgumentException("CGPA can only be set on student profiles. Faculty accounts cannot modify student CGPA.");
                 }
-                double rounded = Math.round(parsed * 100.0) / 100.0;
-                user.setCgpa(rounded);
             }
 
             userRepository.save(user);

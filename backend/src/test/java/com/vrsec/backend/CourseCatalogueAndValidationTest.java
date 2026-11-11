@@ -1,6 +1,7 @@
 package com.vrsec.backend;
 
 import com.vrsec.backend.controller.ApiController;
+import com.vrsec.backend.controller.QuizController;
 import com.vrsec.backend.model.*;
 import com.vrsec.backend.repository.*;
 import com.vrsec.backend.service.AuthService;
@@ -24,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class CourseCatalogueAndValidationTest {
 
     private ApiController apiController;
+    private QuizController quizController;
     private LearningPathService learningPathService;
     private JwtService jwtService;
 
@@ -34,6 +36,7 @@ public class CourseCatalogueAndValidationTest {
     private Map<Long, ApprovedCourse> approvedCourseDb;
     private Map<Long, CourseRequest> courseRequestDb;
     private CourseRequestRepository courseRequestRepository;
+    private QuizQuestionRepository questionRepository;
 
     @BeforeEach
     void setUp() {
@@ -63,11 +66,12 @@ public class CourseCatalogueAndValidationTest {
                         Long id = (Long) args[0];
                         return Optional.ofNullable(courseDb.get(id));
                     }
-                    if ("findByUserEmailIgnoreCaseAndDeletedFalse".equals(name)) {
+                    if ("findByUserEmailIgnoreCaseAndDeletedFalse".equals(name) || "findByUserEmailIgnoreCase".equals(name)) {
                         String email = (String) args[0];
                         List<Course> list = new ArrayList<>();
                         for (Course c : courseDb.values()) {
-                            if (email != null && email.equalsIgnoreCase(c.getUserEmail()) && !c.isDeleted()) {
+                            if (email != null && email.equalsIgnoreCase(c.getUserEmail())) {
+                                if ("findByUserEmailIgnoreCaseAndDeletedFalse".equals(name) && c.isDeleted()) continue;
                                 list.add(c);
                             }
                         }
@@ -116,7 +120,7 @@ public class CourseCatalogueAndValidationTest {
         );
 
         // 3. QuizQuestionRepository Mock
-        QuizQuestionRepository questionRepository = (QuizQuestionRepository) Proxy.newProxyInstance(
+        questionRepository = (QuizQuestionRepository) Proxy.newProxyInstance(
                 QuizQuestionRepository.class.getClassLoader(),
                 new Class<?>[]{QuizQuestionRepository.class},
                 (proxy, method, args) -> {
@@ -272,6 +276,16 @@ public class CourseCatalogueAndValidationTest {
                 new Class<?>[]{TopicPerformanceRepository.class},
                 (proxy, method, args) -> Collections.emptyList()
         );
+        QuizAttemptRepository quizAttemptRepository = (QuizAttemptRepository) Proxy.newProxyInstance(
+                QuizAttemptRepository.class.getClassLoader(),
+                new Class<?>[]{QuizAttemptRepository.class},
+                (proxy, method, args) -> {
+                    if ("save".equals(method.getName())) {
+                        return args[0];
+                    }
+                    return Collections.emptyList();
+                }
+        );
 
         // Wire LearningPathService dependencies
         ReflectionTestUtils.setField(learningPathService, "courseRepository", courseRepository);
@@ -281,6 +295,7 @@ public class CourseCatalogueAndValidationTest {
         ReflectionTestUtils.setField(learningPathService, "suggestedCourseRepository", suggestedCourseRepository);
         ReflectionTestUtils.setField(learningPathService, "topicPerformanceRepository", topicPerformanceRepository);
         ReflectionTestUtils.setField(learningPathService, "approvedCourseRepository", approvedCourseRepository);
+        ReflectionTestUtils.setField(learningPathService, "attemptRepository", quizAttemptRepository);
 
         // Wire ApiController dependencies
         ReflectionTestUtils.setField(apiController, "userRepository", userRepository);
@@ -289,6 +304,7 @@ public class CourseCatalogueAndValidationTest {
         ReflectionTestUtils.setField(apiController, "approvedCourseRepository", approvedCourseRepository);
         ReflectionTestUtils.setField(apiController, "courseRequestRepository", courseRequestRepository);
         ReflectionTestUtils.setField(apiController, "topicPerformanceRepository", topicPerformanceRepository);
+        ReflectionTestUtils.setField(apiController, "quizAttemptRepository", quizAttemptRepository);
         ReflectionTestUtils.setField(apiController, "learningPathService", learningPathService);
 
         AuthService authService = new AuthService();
@@ -298,6 +314,14 @@ public class CourseCatalogueAndValidationTest {
         jwtService = new JwtService();
         jwtService.init();
         ReflectionTestUtils.setField(apiController, "jwtService", jwtService);
+
+        // Wire QuizController dependencies
+        quizController = new QuizController();
+        ReflectionTestUtils.setField(quizController, "learningPathService", learningPathService);
+        ReflectionTestUtils.setField(quizController, "courseRepository", courseRepository);
+        ReflectionTestUtils.setField(quizController, "phaseRepository", phaseRepository);
+        ReflectionTestUtils.setField(quizController, "userRepository", userRepository);
+        ReflectionTestUtils.setField(quizController, "jwtService", jwtService);
 
         // Initialize approved catalogue in mock db
         learningPathService.syncApprovedCatalogue();
@@ -382,6 +406,7 @@ public class CourseCatalogueAndValidationTest {
     @DisplayName("Test 3: System strictly rejects arbitrary text, personal names, and unapproved courses with HTTP 400")
     void test3_StrictRejectionOfArbitraryTextAndPersonalNames() {
         createStudent("student@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        String studentToken = "Bearer " + jwtService.generateToken("student@vrsec.ac.in", "STUDENT", 1L);
 
         String[] invalidInputs = {
                 "John Doe",
@@ -398,7 +423,7 @@ public class CourseCatalogueAndValidationTest {
             req.put("email", "student@vrsec.ac.in");
             req.put("subject", invalid);
 
-            ResponseEntity<?> res = apiController.selectOrGenerateCourse(req);
+            ResponseEntity<?> res = apiController.selectOrGenerateCourse(studentToken, req);
             assertEquals(HttpStatus.BAD_REQUEST, res.getStatusCode(),
                     "Arbitrary string '" + invalid + "' MUST be rejected with HTTP 400");
 
@@ -420,12 +445,13 @@ public class CourseCatalogueAndValidationTest {
     @DisplayName("Test 4: Enrolling in an approved course succeeds and generates authentic learning path")
     void test4_EnrollmentInApprovedCourseSucceeds() {
         createStudent("student@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        String studentToken = "Bearer " + jwtService.generateToken("student@vrsec.ac.in", "STUDENT", 1L);
 
         Map<String, Object> req = new HashMap<>();
         req.put("email", "student@vrsec.ac.in");
         req.put("subject", "Data Structures & Algorithmic Complexity");
 
-        ResponseEntity<?> res = apiController.selectOrGenerateCourse(req);
+        ResponseEntity<?> res = apiController.selectOrGenerateCourse(studentToken, req);
         assertEquals(HttpStatus.OK, res.getStatusCode());
 
         Map<String, Object> body = (Map<String, Object>) res.getBody();
@@ -450,7 +476,8 @@ public class CourseCatalogueAndValidationTest {
         req.put("title", "Quantum Computing & Information");
         req.put("reason", "Preparation for research elective");
 
-        ResponseEntity<?> res = apiController.requestCourse(req);
+        String studentToken = "Bearer " + jwtService.generateToken("student@vrsec.ac.in", "STUDENT", 1L);
+        ResponseEntity<?> res = apiController.requestCourse(studentToken, req);
         assertEquals(HttpStatus.OK, res.getStatusCode());
 
         Map<String, Object> body = (Map<String, Object>) res.getBody();
@@ -480,11 +507,12 @@ public class CourseCatalogueAndValidationTest {
         req.put("title", "Parallel Computing");
         req.put("reason", "Elective study");
 
-        ResponseEntity<?> firstRes = apiController.requestCourse(req);
+        String studentToken = "Bearer " + jwtService.generateToken("student@vrsec.ac.in", "STUDENT", 1L);
+        ResponseEntity<?> firstRes = apiController.requestCourse(studentToken, req);
         assertEquals(HttpStatus.OK, firstRes.getStatusCode());
 
         // Attempt duplicate request
-        ResponseEntity<?> secondRes = apiController.requestCourse(req);
+        ResponseEntity<?> secondRes = apiController.requestCourse(studentToken, req);
         assertEquals(HttpStatus.BAD_REQUEST, secondRes.getStatusCode());
 
         Map<String, Object> body = (Map<String, Object>) secondRes.getBody();
@@ -504,13 +532,13 @@ public class CourseCatalogueAndValidationTest {
         req.put("email", "student@vrsec.ac.in");
         req.put("title", "Distributed Systems & Cloud Architecture");
         req.put("reason", "Industry preparation");
-        apiController.requestCourse(req);
+        String studentToken = "Bearer " + jwtService.generateToken("student@vrsec.ac.in", "STUDENT", 1L);
+        apiController.requestCourse(studentToken, req);
 
         CourseRequest pendingReq = courseRequestDb.values().iterator().next();
         Long requestId = pendingReq.getId();
 
         // 2a. SECURITY CHECK: Student attempts to approve course request -> MUST BE REJECTED WITH 403 FORBIDDEN
-        String studentToken = "Bearer " + jwtService.generateToken("student@vrsec.ac.in", "STUDENT", 1L);
         Map<String, Object> unauthorizedPayload = new HashMap<>();
         unauthorizedPayload.put("requestId", requestId);
         unauthorizedPayload.put("approverEmail", "hod.cse@siddhartha.ac.in"); // Forged email in body!
@@ -546,17 +574,18 @@ public class CourseCatalogueAndValidationTest {
         enrollPayload.put("email", "student@vrsec.ac.in");
         enrollPayload.put("subject", "Distributed Systems & Cloud Architecture");
 
-        ResponseEntity<?> enrollRes = apiController.selectOrGenerateCourse(enrollPayload);
+        ResponseEntity<?> enrollRes = apiController.selectOrGenerateCourse(studentToken, enrollPayload);
         assertEquals(HttpStatus.OK, enrollRes.getStatusCode());
         assertEquals(1, courseDb.size());
 
         // 4. Ineligible student enrollment check: A Mechanical student attempting to enroll in an ECE Core course
         User mechStudent = createStudent("mech.student@vrsec.ac.in", "MECH", "2nd Year", "1st Sem");
+        String mechToken = "Bearer " + jwtService.generateToken("mech.student@vrsec.ac.in", "STUDENT", 2L);
         Map<String, Object> ineligiblePayload = new HashMap<>();
         ineligiblePayload.put("email", "mech.student@vrsec.ac.in");
         ineligiblePayload.put("subject", "Electronic Devices & Circuit Theory"); // ECE CORE course
 
-        ResponseEntity<?> ineligibleRes = apiController.selectOrGenerateCourse(ineligiblePayload);
+        ResponseEntity<?> ineligibleRes = apiController.selectOrGenerateCourse(mechToken, ineligiblePayload);
         assertEquals(HttpStatus.BAD_REQUEST, ineligibleRes.getStatusCode(),
                 "Cross-department enrollment in restricted core course must fail eligibility check!");
         Map<String, Object> errorBody = (Map<String, Object>) ineligibleRes.getBody();
@@ -744,5 +773,303 @@ public class CourseCatalogueAndValidationTest {
         ResponseEntity<?> res6 = apiController.approveCourseRequest(validFacultyToken, body);
         assertEquals(HttpStatus.OK, res6.getStatusCode(), "Authorized faculty token must return 200 OK");
         assertEquals("APPROVED", cr.getStatus());
+    }
+
+    // =========================================================================
+    // TEST 12: Course Request Security Audits (Requirement 1 & 3)
+    // =========================================================================
+    @Test
+    @DisplayName("Test 12: Course request security audits - JWT requirement, role validation, and body email spoofing prevention")
+    void test12_CourseRequestIdentitySecurityAudits() {
+        createStudent("student.a@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        createStudent("student.b@vrsec.ac.in", "ECE", "2nd Year", "1st Sem");
+        createFaculty("faculty@siddhartha.ac.in", "Dr. Faculty", "CSE");
+
+        Map<String, String> req = new HashMap<>();
+        req.put("title", "Quantum Cryptography & Quantum Key Distribution");
+        req.put("reason", "Honors research");
+
+        // 1. Missing JWT on course request -> 401
+        ResponseEntity<?> res1 = apiController.requestCourse(null, req);
+        assertEquals(HttpStatus.UNAUTHORIZED, res1.getStatusCode(), "Missing token must return 401");
+
+        // 2. Invalid JWT on course request -> 401
+        ResponseEntity<?> res2 = apiController.requestCourse("Bearer invalid.tampered.token", req);
+        assertEquals(HttpStatus.UNAUTHORIZED, res2.getStatusCode(), "Invalid token must return 401");
+
+        // 3. Faculty attempting student course request -> 403
+        String facultyToken = "Bearer " + jwtService.generateToken("faculty@siddhartha.ac.in", "FACULTY", 50L);
+        ResponseEntity<?> res3 = apiController.requestCourse(facultyToken, req);
+        assertEquals(HttpStatus.FORBIDDEN, res3.getStatusCode(), "Faculty accounts must be rejected with 403");
+
+        // 4. Valid student JWT with body email spoofing: Student A token submits body with Student B email
+        String studentAToken = "Bearer " + jwtService.generateToken("student.a@vrsec.ac.in", "STUDENT", 101L);
+        Map<String, String> spoofedReq = new HashMap<>(req);
+        spoofedReq.put("email", "student.b@vrsec.ac.in"); // Attempt to submit request on behalf of Student B!
+
+        ResponseEntity<?> res4 = apiController.requestCourse(studentAToken, spoofedReq);
+        assertEquals(HttpStatus.OK, res4.getStatusCode(), "Valid student token must succeed");
+
+        // Verify that the saved course request record uses Student A's authenticated email, NOT the spoofed body email!
+        CourseRequest savedCr = courseRequestDb.values().stream()
+                .filter(c -> c.getSuggestedTitle().equals("Quantum Cryptography & Quantum Key Distribution"))
+                .findFirst().orElse(null);
+        assertNotNull(savedCr);
+        assertEquals("student.a@vrsec.ac.in", savedCr.getStudentEmail(), "Saved request MUST use authenticated token identity, completely ignoring body email spoofing!");
+    }
+
+    // =========================================================================
+    // TEST 13: Dashboard Privacy and Cross-Student Isolation Audits (Requirement 2 & 3)
+    // =========================================================================
+    @Test
+    @DisplayName("Test 13: Dashboard privacy and course requests cross-student isolation audits")
+    void test13_DashboardPrivacyAndCrossStudentIsolationAudits() {
+        createStudent("student.a@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        createStudent("student.b@vrsec.ac.in", "ECE", "2nd Year", "1st Sem");
+        createFaculty("hod.cse@siddhartha.ac.in", "Dr. HOD CSE", "CSE");
+
+        // 1. Missing JWT on dashboard -> 401
+        ResponseEntity<?> res1 = apiController.getDashboard(null, "student.a@vrsec.ac.in");
+        assertEquals(HttpStatus.UNAUTHORIZED, res1.getStatusCode(), "Missing token on dashboard must return 401");
+
+        // 2. Invalid JWT on dashboard -> 401
+        ResponseEntity<?> res2 = apiController.getDashboard("Bearer fake.token", "student.a@vrsec.ac.in");
+        assertEquals(HttpStatus.UNAUTHORIZED, res2.getStatusCode(), "Invalid token on dashboard must return 401");
+
+        // 3. Cloud deployment health check exemption -> 200 OK
+        ResponseEntity<?> resHealth = apiController.getDashboard(null, "healthcheck");
+        assertEquals(HttpStatus.OK, resHealth.getStatusCode(), "Healthcheck must return 200 OK without token");
+
+        // 4. Student A attempting to access Student B's dashboard -> 403 Forbidden!
+        String studentAToken = "Bearer " + jwtService.generateToken("student.a@vrsec.ac.in", "STUDENT", 101L);
+        ResponseEntity<?> resCrossDashboard = apiController.getDashboard(studentAToken, "student.b@vrsec.ac.in");
+        assertEquals(HttpStatus.FORBIDDEN, resCrossDashboard.getStatusCode(), "Student A must NOT access Student B's dashboard (403 Forbidden)");
+
+        // 5. Student A accessing own dashboard -> 200 OK
+        ResponseEntity<?> resOwnDashboard = apiController.getDashboard(studentAToken, "student.a@vrsec.ac.in");
+        assertEquals(HttpStatus.OK, resOwnDashboard.getStatusCode(), "Student A can access own dashboard (200 OK)");
+
+        // 6. Faculty inspecting Student B's dashboard -> 200 OK
+        String facultyToken = "Bearer " + jwtService.generateToken("hod.cse@siddhartha.ac.in", "FACULTY", 99L);
+        ResponseEntity<?> resFacultyDashboard = apiController.getDashboard(facultyToken, "student.b@vrsec.ac.in");
+        assertEquals(HttpStatus.OK, resFacultyDashboard.getStatusCode(), "Authorized faculty can view student dashboard for academic advising");
+
+        // 7. Student A attempting to retrieve Student B's course requests
+        CourseRequest crB = new CourseRequest("student.b@vrsec.ac.in", "Student B", "ECE", "2nd Year", "1st Sem", "Nanoelectronics", "Research");
+        courseRequestRepository.save(crB);
+
+        // Student A calls getCourseRequests with Student B's email in query param -> Should return only Student A's requests (empty list)
+        ResponseEntity<?> resCrossRequests = apiController.getCourseRequests(studentAToken, "student.b@vrsec.ac.in");
+        assertEquals(HttpStatus.OK, resCrossRequests.getStatusCode());
+        List<CourseRequest> returnedRequests = (List<CourseRequest>) resCrossRequests.getBody();
+        assertNotNull(returnedRequests);
+        // Student A should see 0 requests, NOT Student B's request!
+        assertTrue(returnedRequests.stream().noneMatch(r -> "student.b@vrsec.ac.in".equalsIgnoreCase(r.getStudentEmail())),
+                "Student A must never receive Student B's course requests!");
+    }
+
+    // =========================================================================
+    // TEST 14: Course Selection Identity & Ownership Enforcement
+    // =========================================================================
+    @Test
+    @DisplayName("Test 14: Course selection identity derived strictly from JWT; cross-student enrollment and faculty enrollment rejected")
+    void test14_CourseSelectionIdentityAndOwnership() {
+        createStudent("student.a@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        createStudent("student.b@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        createFaculty("faculty@vrsec.ac.in", "Dr. Faculty", "CSE");
+
+        Map<String, Object> req = new HashMap<>();
+        req.put("subject", "Data Structures & Algorithmic Complexity");
+
+        // 1. Missing token -> 401 Unauthorized
+        ResponseEntity<?> res1 = apiController.selectOrGenerateCourse(null, req);
+        assertEquals(HttpStatus.UNAUTHORIZED, res1.getStatusCode());
+
+        // 2. Invalid/tampered token -> 401 Unauthorized
+        ResponseEntity<?> res2 = apiController.selectOrGenerateCourse("Bearer invalid.token.signature", req);
+        assertEquals(HttpStatus.UNAUTHORIZED, res2.getStatusCode());
+
+        // 3. Faculty token -> 403 Forbidden (Only students can enroll)
+        String facultyToken = "Bearer " + jwtService.generateToken("faculty@vrsec.ac.in", "FACULTY", 50L);
+        ResponseEntity<?> res3 = apiController.selectOrGenerateCourse(facultyToken, req);
+        assertEquals(HttpStatus.FORBIDDEN, res3.getStatusCode());
+        assertTrue(res3.getBody().toString().contains("Only students can enroll"));
+
+        // 4. Student A attempts to enroll on behalf of Student B by spoofing body email
+        String studentAToken = "Bearer " + jwtService.generateToken("student.a@vrsec.ac.in", "STUDENT", 1L);
+        Map<String, Object> spoofedReq = new HashMap<>(req);
+        spoofedReq.put("email", "student.b@vrsec.ac.in"); // Spoofed email in body
+
+        ResponseEntity<?> res4 = apiController.selectOrGenerateCourse(studentAToken, spoofedReq);
+        assertEquals(HttpStatus.OK, res4.getStatusCode());
+
+        // Verify the created course belongs to Student A (authenticated JWT), NOT Student B!
+        assertEquals(1, courseDb.size());
+        Course created = courseDb.values().iterator().next();
+        assertEquals("student.a@vrsec.ac.in", created.getUserEmail(),
+                "Enrolled course MUST belong to Student A derived from JWT, completely ignoring spoofed body email!");
+
+        // Verify Student B has zero enrolled courses
+        long studentBCourses = courseDb.values().stream()
+                .filter(c -> "student.b@vrsec.ac.in".equalsIgnoreCase(c.getUserEmail()))
+                .count();
+        assertEquals(0, studentBCourses, "Student B must have 0 courses enrolled!");
+
+        // 5. Enrolling again preserves existing course and does not duplicate
+        ResponseEntity<?> res5 = apiController.selectOrGenerateCourse(studentAToken, req);
+        assertEquals(HttpStatus.OK, res5.getStatusCode());
+        assertEquals(1, courseDb.size(), "Duplicate enrollment must return existing course without duplicating");
+    }
+
+    // =========================================================================
+    // TEST 15: Profile Update Identity and CGPA Security Audits
+    // =========================================================================
+    @Test
+    @DisplayName("Test 15: Profile updates derive owner strictly from JWT, preventing cross-student CGPA tampering and unauthorized faculty modifications")
+    void test15_ProfileUpdateIdentityAndCgpaSecurity() {
+        User studentA = createStudent("student.a@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        studentA.setCgpa(8.00);
+        User studentB = createStudent("student.b@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        studentB.setCgpa(9.20);
+        User faculty = createFaculty("faculty@vrsec.ac.in", "Prof. Tester", "CSE");
+
+        String studentAToken = "Bearer " + jwtService.generateToken("student.a@vrsec.ac.in", "STUDENT", studentA.getId());
+        String facultyToken = "Bearer " + jwtService.generateToken("faculty@vrsec.ac.in", "FACULTY", faculty.getId());
+
+        // 1. Missing token -> 401 Unauthorized
+        Map<String, Object> req = new HashMap<>();
+        req.put("cgpa", "7.50");
+        ResponseEntity<?> res1 = apiController.updateProfile(null, req);
+        assertEquals(HttpStatus.UNAUTHORIZED, res1.getStatusCode());
+
+        // 2. Tampered token -> 401 Unauthorized
+        ResponseEntity<?> res2 = apiController.updateProfile("Bearer fake.token", req);
+        assertEquals(HttpStatus.UNAUTHORIZED, res2.getStatusCode());
+
+        // 3. Student A attempts to update Student B's CGPA by supplying Student B's email in body
+        Map<String, Object> spoofedUpdate = new HashMap<>();
+        spoofedUpdate.put("email", "student.b@vrsec.ac.in"); // Student B targeted in body
+        spoofedUpdate.put("cgpa", "6.15");
+
+        ResponseEntity<?> res3 = apiController.updateProfile(studentAToken, spoofedUpdate);
+        assertEquals(HttpStatus.OK, res3.getStatusCode());
+
+        // Student B's CGPA must remain untouched (9.20), Student A's CGPA updated to 6.15
+        assertEquals(9.20, studentB.getCgpa(), "Student B's CGPA must NOT be altered by Student A's spoofed request!");
+        assertEquals(6.15, studentA.getCgpa(), "Student A's own CGPA is updated since identity is derived from JWT!");
+
+        // 4. Faculty token attempting to set student CGPA -> Faculty accounts cannot modify student CGPA (rejected with 400 Bad Request)
+        Map<String, Object> facultyReq = new HashMap<>();
+        facultyReq.put("email", "student.a@vrsec.ac.in");
+        facultyReq.put("cgpa", "9.99");
+        ResponseEntity<?> resFaculty = apiController.updateProfile(facultyToken, facultyReq);
+        assertEquals(HttpStatus.BAD_REQUEST, resFaculty.getStatusCode());
+        assertTrue(resFaculty.getBody().toString().contains("Faculty accounts cannot modify student CGPA"));
+        // Student A CGPA is still 6.15
+        assertEquals(6.15, studentA.getCgpa(), "Faculty cannot modify student CGPA through profile update endpoint!");
+        assertNull(faculty.getCgpa(), "Faculty user has no CGPA");
+
+        // 5. CGPA validation checks
+        Map<String, Object> badCgpaReq1 = Map.of("cgpa", "11.50");
+        ResponseEntity<?> badRes1 = apiController.updateProfile(studentAToken, badCgpaReq1);
+        assertEquals(HttpStatus.BAD_REQUEST, badRes1.getStatusCode());
+
+        Map<String, Object> badCgpaReq2 = Map.of("cgpa", "-2.00");
+        ResponseEntity<?> badRes2 = apiController.updateProfile(studentAToken, badCgpaReq2);
+        assertEquals(HttpStatus.BAD_REQUEST, badRes2.getStatusCode());
+
+        Map<String, Object> badCgpaReq3 = Map.of("cgpa", "8.999");
+        ResponseEntity<?> badRes3 = apiController.updateProfile(studentAToken, badCgpaReq3);
+        assertEquals(HttpStatus.BAD_REQUEST, badRes3.getStatusCode());
+    }
+
+    // =========================================================================
+    // TEST 16: Cross-Student Quiz Submission Security
+    // =========================================================================
+    @Test
+    @DisplayName("Test 16: Cross-student quiz submissions are strictly rejected with HTTP 403 Forbidden")
+    void test16_CrossStudentQuizSubmissionSecurity() {
+        User studentA = createStudent("student.a@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        User studentB = createStudent("student.b@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+
+        Course courseA = learningPathService.generateSubjectLearningPath(studentA, "Data Structures & Algorithmic Complexity");
+        Course courseB = learningPathService.generateSubjectLearningPath(studentB, "Data Structures & Algorithmic Complexity");
+
+        String studentAToken = "Bearer " + jwtService.generateToken("student.a@vrsec.ac.in", "STUDENT", studentA.getId());
+        String studentBToken = "Bearer " + jwtService.generateToken("student.b@vrsec.ac.in", "STUDENT", studentB.getId());
+
+        // Prepare quiz submission payload for course B
+        // Ensure Phase 1 quiz questions are generated and loaded
+        learningPathService.getOrCreatePhaseQuiz(courseB.getId(), 1);
+
+        Map<String, Object> subB = new HashMap<>();
+        subB.put("courseId", courseB.getId());
+        subB.put("phaseNumber", 1);
+        Map<String, String> answers = new HashMap<>();
+        CoursePhase phaseB = phaseDb.values().stream()
+                .filter(p -> p.getCourse().getId().equals(courseB.getId()) && p.getPhaseNumber() == 1)
+                .findFirst().orElseThrow();
+        List<QuizQuestion> qList = questionRepository.findByPhaseIdOrderByIdAsc(phaseB.getId());
+        assertFalse(qList.isEmpty(), "Phase 1 quiz questions must be generated");
+        for (QuizQuestion q : qList) {
+            answers.put(String.valueOf(q.getId()), q.getCorrectOption());
+        }
+        subB.put("answers", answers);
+
+        // 1. Missing token -> 401
+        ResponseEntity<?> res1 = quizController.submitQuiz(null, subB);
+        assertEquals(HttpStatus.UNAUTHORIZED, res1.getStatusCode());
+
+        // 2. Student A attempts to submit quiz answers for Student B's course -> 403 Forbidden!
+        ResponseEntity<?> resCross = quizController.submitQuiz(studentAToken, subB);
+        assertEquals(HttpStatus.FORBIDDEN, resCross.getStatusCode());
+        assertTrue(resCross.getBody().toString().contains("Access denied: You do not own this course"));
+
+        // 3. Student B submits for own course -> 200 OK
+        ResponseEntity<?> resOwn = quizController.submitQuiz(studentBToken, subB);
+        assertEquals(HttpStatus.OK, resOwn.getStatusCode());
+        Map<String, Object> body = (Map<String, Object>) resOwn.getBody();
+        assertNotNull(body);
+        assertTrue((Boolean) body.get("passed"));
+    }
+
+    // =========================================================================
+    // TEST 17: Cross-Student Course Progress & Toggle-Delete Security
+    // =========================================================================
+    @Test
+    @DisplayName("Test 17: Cross-student course deletion/modification is strictly rejected with HTTP 403 Forbidden")
+    void test17_CrossStudentCourseProgressModification() {
+        User studentA = createStudent("student.a@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        User studentB = createStudent("student.b@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+
+        Course courseA = learningPathService.generateSubjectLearningPath(studentA, "Data Structures & Algorithmic Complexity");
+        Course courseB = learningPathService.generateSubjectLearningPath(studentB, "Data Structures & Algorithmic Complexity");
+
+        String studentAToken = "Bearer " + jwtService.generateToken("student.a@vrsec.ac.in", "STUDENT", studentA.getId());
+
+        // 1. Missing token -> 401 Unauthorized
+        Map<String, Object> delPayload = new HashMap<>();
+        delPayload.put("courseId", courseB.getId());
+        delPayload.put("isDeleted", true);
+
+        ResponseEntity<?> res1 = apiController.toggleCourseDelete(null, delPayload);
+        assertEquals(HttpStatus.UNAUTHORIZED, res1.getStatusCode());
+
+        // 2. Student A attempts to delete Student B's course -> 403 Forbidden!
+        ResponseEntity<?> resCross = apiController.toggleCourseDelete(studentAToken, delPayload);
+        assertEquals(HttpStatus.FORBIDDEN, resCross.getStatusCode());
+        assertTrue(resCross.getBody().toString().contains("Access denied: You do not own this course"));
+
+        // Verify Student B's course is NOT deleted
+        assertFalse(courseB.isDeleted(), "Student B's course must remain active!");
+
+        // 3. Student A deletes own course -> 200 OK
+        Map<String, Object> ownDelPayload = new HashMap<>();
+        ownDelPayload.put("courseId", courseA.getId());
+        ownDelPayload.put("isDeleted", true);
+
+        ResponseEntity<?> resOwn = apiController.toggleCourseDelete(studentAToken, ownDelPayload);
+        assertEquals(HttpStatus.OK, resOwn.getStatusCode());
+        assertTrue(courseA.isDeleted(), "Student A's course must be marked deleted");
     }
 }

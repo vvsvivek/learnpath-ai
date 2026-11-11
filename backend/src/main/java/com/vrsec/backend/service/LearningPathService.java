@@ -249,7 +249,6 @@ public class LearningPathService {
             } else {
                 if (q.getConceptTag() != null) {
                     weakConcepts.add(q.getConceptTag());
-                    updateTopicPerformance(student, course.getTitle(), q.getConceptTag(), false);
                 }
             }
 
@@ -307,6 +306,15 @@ public class LearningPathService {
             int progressPct = (int) Math.round(((double) completedCount / allPhases.size()) * 100.0);
             course.setProgress(progressPct);
             courseRepository.save(course);
+        }
+
+        // Update topic performance records safely after attempt and phase are saved
+        try {
+            for (String weakConcept : weakConcepts) {
+                updateTopicPerformance(student, course.getTitle(), weakConcept, false);
+            }
+        } catch (Exception ignored) {
+            // Secondary tracking metric; never fail the student's submission
         }
 
         Map<String, Object> response = new HashMap<>();

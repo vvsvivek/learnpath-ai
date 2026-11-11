@@ -29,8 +29,8 @@ public class QuizController {
     @Autowired private DataSource dataSource;
 
     /**
-     * Inspects and returns current Supabase quiz_questions column types and constraints,
-     * safely aligning correct_option to VARCHAR(10) if not already migrated.
+     * Inspects and returns current Supabase quiz table column types and constraints,
+     * safely aligning quiz_questions, quiz_attempts, and topic_performance schemas.
      */
     @GetMapping("/schema")
     public ResponseEntity<?> getQuizSchema() {
@@ -38,28 +38,34 @@ public class QuizController {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
 
-            List<Map<String, Object>> columns = new ArrayList<>();
-            try (ResultSet rs = stmt.executeQuery(
-                    "SELECT column_name, data_type, column_default, is_nullable " +
-                    "FROM information_schema.columns WHERE table_name = 'quiz_questions' ORDER BY ordinal_position")) {
-                while (rs.next()) {
-                    Map<String, Object> col = new LinkedHashMap<>();
-                    col.put("column", rs.getString("column_name"));
-                    col.put("type", rs.getString("data_type"));
-                    col.put("default", rs.getString("column_default"));
-                    col.put("nullable", rs.getString("is_nullable"));
-                    columns.add(col);
+            Map<String, List<Map<String, Object>>> tables = new LinkedHashMap<>();
+            String[] targetTables = {"quiz_questions", "quiz_attempts", "topic_performance"};
+            for (String tbl : targetTables) {
+                List<Map<String, Object>> cols = new ArrayList<>();
+                try (ResultSet rs = stmt.executeQuery(
+                        "SELECT column_name, data_type, column_default, is_nullable " +
+                        "FROM information_schema.columns WHERE table_name = '" + tbl + "' ORDER BY ordinal_position")) {
+                    while (rs.next()) {
+                        Map<String, Object> col = new LinkedHashMap<>();
+                        col.put("column", rs.getString("column_name"));
+                        col.put("type", rs.getString("data_type"));
+                        col.put("default", rs.getString("column_default"));
+                        col.put("nullable", rs.getString("is_nullable"));
+                        cols.add(col);
+                    }
                 }
+                tables.put(tbl, cols);
             }
-            result.put("columns", columns);
+            result.put("tables", tables);
 
             List<Map<String, Object>> constraints = new ArrayList<>();
             try (ResultSet rs = stmt.executeQuery(
-                    "SELECT conname, pg_get_constraintdef(c.oid) as def " +
+                    "SELECT c.conname, pg_get_constraintdef(c.oid) as def, t.relname " +
                     "FROM pg_constraint c JOIN pg_class t ON c.conrelid = t.oid " +
-                    "WHERE t.relname = 'quiz_questions'")) {
+                    "WHERE t.relname IN ('quiz_questions', 'quiz_attempts', 'topic_performance')")) {
                 while (rs.next()) {
                     Map<String, Object> con = new LinkedHashMap<>();
+                    con.put("table", rs.getString("relname"));
                     con.put("name", rs.getString("conname"));
                     con.put("definition", rs.getString("def"));
                     constraints.add(con);
@@ -71,6 +77,7 @@ public class QuizController {
             conn.setAutoCommit(true);
 
             String[] legacyCleanups = {
+                // quiz_questions cleanups
                 "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS check_correct_option",
                 "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_correct_option_check",
                 "ALTER TABLE quiz_questions DROP CONSTRAINT IF EXISTS quiz_questions_quiz_id_fkey",
@@ -82,7 +89,79 @@ public class QuizController {
                 "ALTER TABLE quiz_questions ALTER COLUMN optiond DROP NOT NULL",
                 "ALTER TABLE quiz_questions ALTER COLUMN correct_option DROP DEFAULT",
                 "ALTER TABLE quiz_questions ALTER COLUMN correct_option TYPE VARCHAR(10) USING CASE WHEN correct_option::text = '0' THEN 'A' WHEN correct_option::text = '1' THEN 'B' WHEN correct_option::text = '2' THEN 'C' WHEN correct_option::text = '3' THEN 'D' ELSE UPPER(correct_option::text) END",
-                "ALTER TABLE quiz_questions ALTER COLUMN correct_option SET DEFAULT 'A'"
+                "ALTER TABLE quiz_questions ALTER COLUMN correct_option SET DEFAULT 'A'",
+
+                // quiz_attempts cleanups
+                "ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS quiz_attempts_quiz_id_fkey",
+                "ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS check_quiz_score",
+                "ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS quiz_attempts_score_check",
+                "ALTER TABLE quiz_attempts ALTER COLUMN quiz_id DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN time_taken DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN completed_at DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN total_questions DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN score DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN percentage DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN passed DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN topic DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ALTER COLUMN attempt_number DROP NOT NULL",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS user_id BIGINT",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS course_id BIGINT",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS phase_id BIGINT",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS score INT DEFAULT 0",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS total_questions INT DEFAULT 10",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS percentage NUMERIC(5,2) DEFAULT 0.00",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS passed BOOLEAN DEFAULT FALSE",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS topic VARCHAR(255)",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS attempt_number INT DEFAULT 1",
+                "ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+
+                // topic_performance cleanups
+                "CREATE TABLE IF NOT EXISTS topic_performance (id BIGSERIAL PRIMARY KEY, user_id BIGINT, course_title VARCHAR(255) NOT NULL DEFAULT '', concept_tag VARCHAR(100) NOT NULL DEFAULT '', times_tested INT DEFAULT 1, times_incorrect INT DEFAULT 0, status VARCHAR(50) DEFAULT 'NEEDS_ATTENTION', last_evaluated_at TIMESTAMPTZ DEFAULT NOW())",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS user_id BIGINT",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS course_title VARCHAR(255) DEFAULT ''",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS concept_tag VARCHAR(100) DEFAULT ''",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS times_tested INT DEFAULT 1",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS times_incorrect INT DEFAULT 0",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'NEEDS_ATTENTION'",
+                "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS last_evaluated_at TIMESTAMPTZ DEFAULT NOW()",
+                "ALTER TABLE topic_performance ALTER COLUMN topic DROP NOT NULL",
+                "ALTER TABLE topic_performance ALTER COLUMN accuracy DROP NOT NULL",
+
+                // Idempotent PL/pgSQL block to ensure ID and foreign keys are BIGINT
+                "DO $$ BEGIN " +
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'id' AND data_type = 'uuid') THEN " +
+                "    ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS new_id BIGSERIAL; " +
+                "    ALTER TABLE quiz_attempts DROP CONSTRAINT IF EXISTS quiz_attempts_pkey CASCADE; " +
+                "    ALTER TABLE quiz_attempts DROP COLUMN IF EXISTS id CASCADE; " +
+                "    ALTER TABLE quiz_attempts RENAME COLUMN new_id TO id; " +
+                "    ALTER TABLE quiz_attempts ADD PRIMARY KEY (id); " +
+                "  END IF; " +
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'user_id' AND data_type = 'uuid') THEN " +
+                "    ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS new_user_id BIGINT; " +
+                "    ALTER TABLE quiz_attempts DROP COLUMN IF EXISTS user_id CASCADE; " +
+                "    ALTER TABLE quiz_attempts RENAME COLUMN new_user_id TO user_id; " +
+                "  END IF; " +
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'course_id' AND data_type = 'uuid') THEN " +
+                "    ALTER TABLE quiz_attempts DROP COLUMN IF EXISTS course_id CASCADE; " +
+                "    ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS course_id BIGINT; " +
+                "  END IF; " +
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quiz_attempts' AND column_name = 'phase_id' AND data_type = 'uuid') THEN " +
+                "    ALTER TABLE quiz_attempts DROP COLUMN IF EXISTS phase_id CASCADE; " +
+                "    ALTER TABLE quiz_attempts ADD COLUMN IF NOT EXISTS phase_id BIGINT; " +
+                "  END IF; " +
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'topic_performance' AND column_name = 'id' AND data_type = 'uuid') THEN " +
+                "    ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS new_id BIGSERIAL; " +
+                "    ALTER TABLE topic_performance DROP CONSTRAINT IF EXISTS topic_performance_pkey CASCADE; " +
+                "    ALTER TABLE topic_performance DROP COLUMN IF EXISTS id CASCADE; " +
+                "    ALTER TABLE topic_performance RENAME COLUMN new_id TO id; " +
+                "    ALTER TABLE topic_performance ADD PRIMARY KEY (id); " +
+                "  END IF; " +
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'topic_performance' AND column_name = 'user_id' AND data_type = 'uuid') THEN " +
+                "    ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS new_user_id BIGINT; " +
+                "    ALTER TABLE topic_performance DROP COLUMN IF EXISTS user_id CASCADE; " +
+                "    ALTER TABLE topic_performance RENAME COLUMN new_user_id TO user_id; " +
+                "  END IF; " +
+                "END $$;"
             };
 
             for (String sql : legacyCleanups) {

@@ -334,6 +334,18 @@ public class CourseCatalogueAndValidationTest {
         u.setEmail(email.toLowerCase());
         u.setRole("FACULTY");
         u.setBranch(branch);
+        u.setIsEmailVerified(true);
+        userDb.put(email.toLowerCase(), u);
+        return u;
+    }
+
+    private User createAdmin(String email, String name) {
+        User u = new User();
+        u.setId((long) (userDb.size() + 1));
+        u.setUsername(name);
+        u.setEmail(email.toLowerCase());
+        u.setRole("ADMIN");
+        u.setIsEmailVerified(true);
         userDb.put(email.toLowerCase(), u);
         return u;
     }
@@ -348,6 +360,7 @@ public class CourseCatalogueAndValidationTest {
         u.setAcademicYear(year);
         u.setSemester(sem);
         u.setCgpa(8.5);
+        u.setIsEmailVerified(true);
         userDb.put(email.toLowerCase(), u);
         return u;
     }
@@ -547,7 +560,7 @@ public class CourseCatalogueAndValidationTest {
                 "Students must NEVER be allowed to approve course requests, even if forging faculty email in body!");
         assertEquals("PENDING", pendingReq.getStatus(), "Request must remain PENDING after unauthorized attempt");
 
-        // 2b. Authorized Faculty approves request
+        // 2b. Ordinary faculty attempts to approve course request -> MUST BE REJECTED WITH 403 FORBIDDEN
         createFaculty("faculty@siddhartha.ac.in", "Prof. Sharma", "CSE");
         String facultyToken = "Bearer " + jwtService.generateToken("faculty@siddhartha.ac.in", "FACULTY", 99L);
         Map<String, Object> approvePayload = new HashMap<>();
@@ -557,12 +570,20 @@ public class CourseCatalogueAndValidationTest {
         approvePayload.put("semester", "1st Sem");
         approvePayload.put("category", "ELECTIVE");
 
-        ResponseEntity<?> approveRes = apiController.approveCourseRequest(facultyToken, approvePayload);
+        ResponseEntity<?> ordinaryRes = apiController.approveCourseRequest(facultyToken, approvePayload);
+        assertEquals(HttpStatus.FORBIDDEN, ordinaryRes.getStatusCode(),
+                "Ordinary faculty without HOD or Admin authorization must be rejected with 403 Forbidden!");
+        assertEquals("PENDING", pendingReq.getStatus(), "Request must remain PENDING after ordinary faculty attempt");
+
+        // 2c. Authorized HOD approves request -> SUCCEEDS WITH 200 OK
+        createFaculty("hod.cse@siddhartha.ac.in", "Dr. HOD CSE", "CSE");
+        String hodToken = "Bearer " + jwtService.generateToken("hod.cse@siddhartha.ac.in", "FACULTY", 100L);
+        ResponseEntity<?> approveRes = apiController.approveCourseRequest(hodToken, approvePayload);
         assertEquals(HttpStatus.OK, approveRes.getStatusCode());
 
         // Verify request updated
         assertEquals("APPROVED", pendingReq.getStatus());
-        assertEquals("Prof. Sharma", pendingReq.getReviewedBy());
+        assertEquals("Dr. HOD CSE", pendingReq.getReviewedBy());
 
         // Verify new course in approved catalogue
         boolean inCatalogue = approvedCourseDb.values().stream()
@@ -728,9 +749,11 @@ public class CourseCatalogueAndValidationTest {
     @DisplayName("Test 11: Security audit verifies token enforcement, rejecting forged body parameters and unauthorized roles")
     void test11_CourseApprovalSecurityAudits() {
         createStudent("student@vrsec.ac.in", "CSE", "2nd Year", "1st Sem");
+        createFaculty("faculty.regular@siddhartha.ac.in", "Regular Faculty", "CSE");
         createFaculty("hod.cse@siddhartha.ac.in", "Dr. HOD CSE", "CSE");
+        createAdmin("admin@siddhartha.ac.in", "System Administrator");
 
-        // Create a pending course request
+        // Create pending course requests
         CourseRequest cr = new CourseRequest(
                 "student@vrsec.ac.in", "Student VRSEC", "CSE", "2nd Year", "1st Sem",
                 "Advanced Operating Systems & Kernel Internals", "Honors preparation"
@@ -768,11 +791,50 @@ public class CourseCatalogueAndValidationTest {
         ResponseEntity<?> res5 = apiController.approveCourseRequest(unauthFacultyToken, body);
         assertEquals(HttpStatus.FORBIDDEN, res5.getStatusCode(), "Unauthorized email token must return 403");
 
-        // Case 6: Valid authorized faculty token
-        String validFacultyToken = "Bearer " + jwtService.generateToken("hod.cse@siddhartha.ac.in", "FACULTY", 99L);
-        ResponseEntity<?> res6 = apiController.approveCourseRequest(validFacultyToken, body);
-        assertEquals(HttpStatus.OK, res6.getStatusCode(), "Authorized faculty token must return 200 OK");
+        // Case 6: Ordinary faculty token without authorization -> REJECTED WITH 403 FORBIDDEN!
+        String ordinaryFacultyToken = "Bearer " + jwtService.generateToken("faculty.regular@siddhartha.ac.in", "FACULTY", 77L);
+        ResponseEntity<?> resOrdinary = apiController.approveCourseRequest(ordinaryFacultyToken, body);
+        assertEquals(HttpStatus.FORBIDDEN, resOrdinary.getStatusCode(), "Ordinary faculty accounts must be rejected with 403 Forbidden");
+        assertTrue(resOrdinary.getBody().toString().contains("Only system administrators and explicitly designated course approvers"));
+        assertEquals("PENDING", cr.getStatus(), "Course request must remain PENDING after ordinary faculty rejection");
+
+        // Case 7: Ordinary faculty with username containing HOD -> REJECTED WITH 403 FORBIDDEN!
+        createFaculty("faculty.spoof@siddhartha.ac.in", "Dr. HOD Mechanical", "MECH");
+        String spoofTitleToken = "Bearer " + jwtService.generateToken("faculty.spoof@siddhartha.ac.in", "FACULTY", 78L);
+        ResponseEntity<?> resSpoof = apiController.approveCourseRequest(spoofTitleToken, body);
+        assertEquals(HttpStatus.FORBIDDEN, resSpoof.getStatusCode(),
+                "Ordinary faculty with HOD in username but unlisted email must be rejected with 403");
+        assertEquals("PENDING", cr.getStatus());
+
+        // Case 8: Ordinary faculty with hod-like email but no authorization record -> REJECTED WITH 403 FORBIDDEN!
+        createFaculty("hod.unauthorized@siddhartha.ac.in", "Dr. Fake HOD", "CSE");
+        String unlistedHodToken = "Bearer " + jwtService.generateToken("hod.unauthorized@siddhartha.ac.in", "FACULTY", 79L);
+        ResponseEntity<?> resUnlistedHod = apiController.approveCourseRequest(unlistedHodToken, body);
+        assertEquals(HttpStatus.FORBIDDEN, resUnlistedHod.getStatusCode(),
+                "Faculty with HOD email prefix not in server-controlled designated registry must be rejected with 403");
+        assertEquals("PENDING", cr.getStatus());
+
+        // Case 9: Explicitly designated HOD token -> SUCCEEDS WITH 200 OK!
+        String validHodToken = "Bearer " + jwtService.generateToken("hod.cse@siddhartha.ac.in", "FACULTY", 99L);
+        ResponseEntity<?> res6 = apiController.approveCourseRequest(validHodToken, body);
+        assertEquals(HttpStatus.OK, res6.getStatusCode(), "Explicitly designated HOD token must return 200 OK");
         assertEquals("APPROVED", cr.getStatus());
+        assertEquals("Dr. HOD CSE", cr.getReviewedBy());
+
+        // Case 10: Authorized ADMIN token -> SUCCEEDS WITH 200 OK!
+        CourseRequest crAdmin = new CourseRequest(
+                "student@vrsec.ac.in", "Student VRSEC", "CSE", "3rd Year", "1st Sem",
+                "High Performance Cloud Computing", "Curriculum addition"
+        );
+        crAdmin = courseRequestRepository.save(crAdmin);
+        Map<String, Object> adminBody = new HashMap<>();
+        adminBody.put("requestId", crAdmin.getId());
+
+        String adminToken = "Bearer " + jwtService.generateToken("admin@siddhartha.ac.in", "ADMIN", 100L);
+        ResponseEntity<?> resAdmin = apiController.approveCourseRequest(adminToken, adminBody);
+        assertEquals(HttpStatus.OK, resAdmin.getStatusCode(), "Authorized Admin token must return 200 OK");
+        assertEquals("APPROVED", crAdmin.getStatus());
+        assertEquals("System Administrator", crAdmin.getReviewedBy());
     }
 
     // =========================================================================

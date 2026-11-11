@@ -551,12 +551,13 @@ public class ApiController {
             String cleanApprover = verifiedEmail.trim().toLowerCase();
             User approver = userRepository.findByEmail(cleanApprover).orElse(null);
 
-            boolean isFacultyRole = approver != null && ("FACULTY".equalsIgnoreCase(approver.getRole()) || "ADMIN".equalsIgnoreCase(approver.getRole()));
-            boolean isEligibleFacultyEmail = authService != null && authService.isEligibleFacultyEmail(cleanApprover);
+            // SECURITY POLICY: Approval is strictly restricted to ADMIN or explicitly designated course approvers.
+            // If AuthService is unavailable, reject approval rather than falling back to weaker checks.
+            boolean isAuthorized = authService != null && authService.isAuthorizedCourseApprover(approver, cleanApprover);
 
-            if (!isFacultyRole && !isEligibleFacultyEmail) {
+            if (!isAuthorized) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Collections.singletonMap("error",
-                        "Access denied: Only authorized faculty or administrators can approve course requests. Students cannot access approval privileges."));
+                        "Access denied: Only system administrators and explicitly designated course approvers can approve course requests. Ordinary faculty and student accounts lack approval privileges."));
             }
 
             String reviewer = approver != null && approver.getUsername() != null ? approver.getUsername() : cleanApprover;

@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 @Service
@@ -72,6 +73,90 @@ public class AuthService {
         if (email == null) return false;
         String clean = email.trim().toLowerCase();
         return isEligibleFacultyEmail(clean) || clean.endsWith("@vrsec.ac.in");
+    }
+
+    /**
+     * Explicit server-controlled registry of designated HOD and course approver email addresses.
+     * Institutional domain membership or username text alone NEVER confers approval authority.
+     * Only addresses explicitly confirmed as authorized course approvers are enrolled.
+     */
+    private static final Set<String> DESIGNATED_COURSE_APPROVERS = ConcurrentHashMap.newKeySet();
+
+    static {
+        // Only explicitly confirmed departmental HOD / course approver addresses
+        DESIGNATED_COURSE_APPROVERS.add("hod.cse@siddhartha.ac.in");
+
+        // Optional server environment-configured approver addresses
+        String envApprovers = System.getenv("COURSE_APPROVER_EMAILS");
+        if (envApprovers != null && !envApprovers.trim().isEmpty()) {
+            for (String email : envApprovers.split(",")) {
+                String clean = email.trim().toLowerCase();
+                if (!clean.isEmpty()) {
+                    DESIGNATED_COURSE_APPROVERS.add(clean);
+                }
+            }
+        }
+    }
+
+    public static boolean isDesignatedApproverEmail(String email) {
+        if (email == null) return false;
+        return DESIGNATED_COURSE_APPROVERS.contains(email.trim().toLowerCase());
+    }
+
+    public static void addDesignatedApprover(String email) {
+        if (email != null && !email.trim().isEmpty()) {
+            DESIGNATED_COURSE_APPROVERS.add(email.trim().toLowerCase());
+        }
+    }
+
+    public static void removeDesignatedApprover(String email) {
+        if (email != null && !email.trim().isEmpty()) {
+            DESIGNATED_COURSE_APPROVERS.remove(email.trim().toLowerCase());
+        }
+    }
+
+    public static Set<String> getDesignatedCourseApprovers() {
+        return Collections.unmodifiableSet(DESIGNATED_COURSE_APPROVERS);
+    }
+
+    /**
+     * Checks if a user is explicitly authorized to approve course catalogue additions.
+     * 
+     * STRICT SECURITY POLICY:
+     * 1. Authorization is NEVER granted based on email prefixes, domain membership alone, or usernames.
+     * 2. The approver's email must be derived from a verified server-side JWT.
+     * 3. The approver account must exist in the database with email verification confirmed (isEmailVerified = true).
+     * 4. Approval is strictly restricted to:
+     *    - Users with server-side database role ADMIN
+     *    - Users with server-side database role FACULTY who are explicitly listed in DESIGNATED_COURSE_APPROVERS
+     * 5. Ordinary faculty, students, unverified accounts, and unlisted accounts are strictly rejected.
+     */
+    public boolean isAuthorizedCourseApprover(User approver, String verifiedEmail) {
+        if (verifiedEmail == null || approver == null) return false;
+        String cleanEmail = verifiedEmail.trim().toLowerCase();
+
+        // 1. Server-side email verification check: Unverified accounts can never approve
+        if (!Boolean.TRUE.equals(approver.getIsEmailVerified())) {
+            return false;
+        }
+
+        // 2. Server-side identity match: database record email must match token verified email
+        if (approver.getEmail() == null || !approver.getEmail().equalsIgnoreCase(cleanEmail)) {
+            return false;
+        }
+
+        // 3. System Administrator role from trusted database record
+        if ("ADMIN".equalsIgnoreCase(approver.getRole())) {
+            return true;
+        }
+
+        // 4. Must be a verified FACULTY user in the database
+        if (!"FACULTY".equalsIgnoreCase(approver.getRole())) {
+            return false;
+        }
+
+        // 5. User email must be explicitly listed in the server-controlled designated approver registry
+        return isDesignatedApproverEmail(cleanEmail);
     }
 
     /**

@@ -544,4 +544,75 @@ public class AuthServiceTest {
 
         assertTrue(isAcademicProfileIncomplete, "New student with null academic details must be marked incomplete to prompt onboarding");
     }
+
+    // 13. Course approver authorization: strict server-side designation required
+    @Test
+    void test13_AuthorizedCourseApproverPermissions() {
+        // 1. Ordinary faculty: rejected
+        User regularFaculty = new User();
+        regularFaculty.setEmail("prof.sharma@siddhartha.ac.in");
+        regularFaculty.setRole("FACULTY");
+        regularFaculty.setUsername("Prof. Sharma");
+        assertFalse(authService.isAuthorizedCourseApprover(regularFaculty, regularFaculty.getEmail()),
+                "Ordinary faculty without explicit authorization must be rejected");
+
+        // 2. Ordinary faculty with username containing HOD: REJECTED (no authorization based on username)
+        User spoofedTitleFaculty = new User();
+        spoofedTitleFaculty.setEmail("faculty.regular@siddhartha.ac.in");
+        spoofedTitleFaculty.setRole("FACULTY");
+        spoofedTitleFaculty.setUsername("Dr. HOD CSE");
+        assertFalse(authService.isAuthorizedCourseApprover(spoofedTitleFaculty, spoofedTitleFaculty.getEmail()),
+                "Faculty with HOD in username but unlisted email must be rejected");
+
+        // 3. Ordinary faculty with hod-like email but no authorization record: REJECTED (no prefix-only bypass)
+        User unlistedHodEmail = new User();
+        unlistedHodEmail.setEmail("hod.unauthorized@siddhartha.ac.in");
+        unlistedHodEmail.setRole("FACULTY");
+        unlistedHodEmail.setUsername("Dr. Temp");
+        assertFalse(authService.isAuthorizedCourseApprover(unlistedHodEmail, unlistedHodEmail.getEmail()),
+                "Unlisted HOD email not in server-controlled registry must be rejected");
+
+        // 4. Explicitly designated HOD in server registry with email verification: APPROVED
+        User designatedHod = new User();
+        designatedHod.setEmail("hod.cse@siddhartha.ac.in");
+        designatedHod.setRole("FACULTY");
+        designatedHod.setUsername("Dr. HOD CSE");
+        designatedHod.setIsEmailVerified(true);
+        assertTrue(authService.isAuthorizedCourseApprover(designatedHod, designatedHod.getEmail()),
+                "Explicitly designated HOD with verified email must be authorized to approve courses");
+
+        // 5. Designated HOD with UNVERIFIED email: REJECTED
+        User unverifiedHod = new User();
+        unverifiedHod.setEmail("hod.cse@siddhartha.ac.in");
+        unverifiedHod.setRole("FACULTY");
+        unverifiedHod.setIsEmailVerified(false);
+        assertFalse(authService.isAuthorizedCourseApprover(unverifiedHod, unverifiedHod.getEmail()),
+                "Approver accounts without email verification must be rejected");
+
+        // 6. Developer email vivekvaranasi99@gmail.com: REJECTED (removed from approver registry)
+        User devUser = new User();
+        devUser.setEmail("vivekvaranasi99@gmail.com");
+        devUser.setRole("FACULTY");
+        devUser.setIsEmailVerified(true);
+        assertFalse(authService.isAuthorizedCourseApprover(devUser, devUser.getEmail()),
+                "Developer email vivekvaranasi99@gmail.com must NOT be an approver unless explicitly granted ADMIN role");
+
+        // 7. System Administrator: APPROVED
+        User admin = new User();
+        admin.setEmail("admin@siddhartha.ac.in");
+        admin.setRole("ADMIN");
+        admin.setUsername("System Admin");
+        admin.setIsEmailVerified(true);
+        assertTrue(authService.isAuthorizedCourseApprover(admin, admin.getEmail()),
+                "Administrator must be authorized to approve courses");
+
+        // 8. Student: REJECTED
+        User student = new User();
+        student.setEmail("student@vrsec.ac.in");
+        student.setRole("STUDENT");
+        student.setUsername("Student A");
+        student.setIsEmailVerified(true);
+        assertFalse(authService.isAuthorizedCourseApprover(student, student.getEmail()),
+                "Student accounts must NEVER be authorized to approve courses");
+    }
 }

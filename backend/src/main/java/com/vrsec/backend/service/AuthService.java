@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 @Transactional(noRollbackFor = {IllegalArgumentException.class, EmailDeliveryException.class})
@@ -48,44 +49,107 @@ public class AuthService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+
+    public boolean isValidEmail(String email) {
+        if (email == null) return false;
+        return EMAIL_PATTERN.matcher(email.trim()).matches();
+    }
+
     /**
-     * Institutional Email & Role Enforcement:
-     * - Faculty: Any email ending in @siddhartha.ac.in or vivekvaranasi99@gmail.com
-     * - Student: Strictly emails ending in @vrsec.ac.in
-     * - Any other domain: Rejected as unauthorized institutional domain
+     * Faculty Email Eligibility:
+     * - Any valid email ending in @siddhartha.ac.in
+     * - Explicitly allowlisted email: vivekvaranasi99@gmail.com
+     * - Any other personal or student email: rejected for faculty
      */
+    public boolean isEligibleFacultyEmail(String email) {
+        if (email == null) return false;
+        String clean = email.trim().toLowerCase();
+        return clean.endsWith("@siddhartha.ac.in") || clean.equalsIgnoreCase("vivekvaranasi99@gmail.com");
+    }
+
     public boolean isAuthorizedInstitutionalEmail(String email) {
         if (email == null) return false;
         String clean = email.trim().toLowerCase();
-        boolean isFaculty = clean.endsWith("@siddhartha.ac.in") || clean.equalsIgnoreCase("vivekvaranasi99@gmail.com");
-        boolean isStudent = clean.endsWith("@vrsec.ac.in");
-        return isFaculty || isStudent;
+        return isEligibleFacultyEmail(clean) || clean.endsWith("@vrsec.ac.in");
     }
 
-    public String determineRole(String email) {
-        if (email == null) {
+    /**
+     * Determine role with explicit backend validation:
+     * - If user already exists in DB, preserves existing role.
+     * - If FACULTY requested: validated against isEligibleFacultyEmail.
+     * - If STUDENT requested: students can register with ANY valid email address.
+     */
+    public String determineRole(String email, String requestedRole) {
+        if (email == null || email.trim().isEmpty()) {
             throw new IllegalArgumentException("Email is required.");
         }
         String clean = email.trim().toLowerCase();
-        if (clean.endsWith("@siddhartha.ac.in") || clean.equalsIgnoreCase("vivekvaranasi99@gmail.com")) {
-            return "FACULTY";
+        if (!isValidEmail(clean)) {
+            throw new IllegalArgumentException("Invalid email format. Please provide a valid email address.");
         }
-        if (clean.endsWith("@vrsec.ac.in")) {
-            return "STUDENT";
+
+        // Preserve existing user role if already registered
+        Optional<User> existing = userRepository.findByEmail(clean);
+        if (existing.isPresent()) {
+            return existing.get().getRole();
         }
-        throw new IllegalArgumentException("Unauthorized email domain. Registration is restricted to @vrsec.ac.in for students and @siddhartha.ac.in for faculty.");
+
+        // For new registrations:
+        if ("FACULTY".equalsIgnoreCase(requestedRole)) {
+            if (isEligibleFacultyEmail(clean)) {
+                return "FACULTY";
+            }
+            throw new IllegalArgumentException("Unauthorized faculty registration. Faculty registration is restricted to @siddhartha.ac.in institutional emails or authorized faculty addresses.");
+        }
+
+        // Students can register with any valid email address
+        return "STUDENT";
+    }
+
+    public String determineRole(String email) {
+        return determineRole(email, null);
     }
 
     public Map<String, Object> sendOtp(String rawEmail) {
+        return sendOtp(rawEmail, null, null);
+    }
+
+    public Map<String, Object> sendOtp(String rawEmail, String requestedRole, String mode) {
         if (rawEmail == null || rawEmail.trim().isEmpty()) {
             throw new IllegalArgumentException("Email is required.");
         }
         String cleanEmail = rawEmail.trim().toLowerCase();
 
-        // Enforce institutional domain restriction
-        if (!isAuthorizedInstitutionalEmail(cleanEmail)) {
-            if (userRepository.findByEmail(cleanEmail).isEmpty()) {
-                throw new IllegalArgumentException("Invalid institutional email. Students must register with @vrsec.ac.in and faculty with @siddhartha.ac.in.");
+        if (!isValidEmail(cleanEmail)) {
+            throw new IllegalArgumentException("Invalid email format. Please provide a valid email address.");
+        }
+
+        // Registration Eligibility & Duplicate Check
+        if ("REGISTER".equalsIgnoreCase(mode)) {
+            if (userRepository.findByEmail(cleanEmail).isPresent()) {
+                throw new IllegalArgumentException("An account with this email already exists. Please sign in instead.");
+            }
+            if ("FACULTY".equalsIgnoreCase(requestedRole) && !isEligibleFacultyEmail(cleanEmail)) {
+                throw new IllegalArgumentException("Unauthorized faculty registration. Faculty registration is restricted to @siddhartha.ac.in institutional emails or authorized faculty addresses.");
+            }
+        }
+
+        // Sign In / Login Cross-Role Validation
+        if ("LOGIN".equalsIgnoreCase(mode) || "SIGN_IN".equalsIgnoreCase(mode)) {
+            Optional<User> userOpt = userRepository.findByEmail(cleanEmail);
+            if (userOpt.isPresent()) {
+                User user = userOpt.get();
+                if ("FACULTY".equalsIgnoreCase(requestedRole) && !"FACULTY".equalsIgnoreCase(user.getRole())) {
+                    throw new IllegalArgumentException("This account is registered as a Student. Please use the Student Portal.");
+                }
+                if ("STUDENT".equalsIgnoreCase(requestedRole) && "FACULTY".equalsIgnoreCase(user.getRole())) {
+                    throw new IllegalArgumentException("This account is registered as Faculty. Please use the Faculty Portal.");
+                }
+            } else {
+                if ("FACULTY".equalsIgnoreCase(requestedRole) && !isEligibleFacultyEmail(cleanEmail)) {
+                    throw new IllegalArgumentException("No faculty account found with this email. Faculty access requires an authorized email.");
+                }
             }
         }
 
@@ -148,11 +212,19 @@ public class AuthService {
     }
 
     public Map<String, Object> verifyOtp(String rawEmail, String otpCode, String providedName, String optionalPassword) {
+        return verifyOtp(rawEmail, otpCode, providedName, optionalPassword, null, null);
+    }
+
+    public Map<String, Object> verifyOtp(String rawEmail, String otpCode, String providedName, String optionalPassword, String requestedRole, String mode) {
         if (rawEmail == null || rawEmail.trim().isEmpty() || otpCode == null || otpCode.trim().isEmpty()) {
             throw new IllegalArgumentException("Email and OTP code are required.");
         }
         String cleanEmail = rawEmail.trim().toLowerCase();
         String cleanOtp = otpCode.trim();
+
+        if (!isValidEmail(cleanEmail)) {
+            throw new IllegalArgumentException("Invalid email format. Please provide a valid email address.");
+        }
 
         // Retrieve latest active OTP from database
         Optional<EmailOtp> otpOpt = otpRepository.findTopByEmailAndUsedFalseOrderByCreatedAtDesc(cleanEmail);
@@ -186,11 +258,17 @@ public class AuthService {
         otpEntity.setUsed(true);
         otpRepository.save(otpEntity);
 
-        // Find or create user
-        String assignedRole = determineRole(cleanEmail);
-        User user = userRepository.findByEmail(cleanEmail).orElse(null);
+        Optional<User> userOpt = userRepository.findByEmail(cleanEmail);
 
-        if (user == null) {
+        // Enforce duplicate registration rejection
+        if ("REGISTER".equalsIgnoreCase(mode) && userOpt.isPresent()) {
+            throw new IllegalArgumentException("An account with this email already exists. Please sign in instead.");
+        }
+
+        User user;
+        if (userOpt.isEmpty()) {
+            // New user registration
+            String assignedRole = determineRole(cleanEmail, requestedRole);
             user = new User();
             user.setEmail(cleanEmail);
             user.setUsername(providedName != null && !providedName.trim().isEmpty() 
@@ -203,12 +281,25 @@ public class AuthService {
             if (optionalPassword != null && !optionalPassword.trim().isEmpty()) {
                 user.setPassword(hashPassword(optionalPassword.trim()));
             }
-            // P3: Do NOT hardcode CSE, 2nd Year, 1st Sem for new students.
-            // Leave branch, academicYear, and semester null so new students complete onboarding on first login.
+            if ("STUDENT".equalsIgnoreCase(assignedRole)) {
+                user.setBranch(null);
+                user.setAcademicYear(null);
+                user.setSemester(null);
+            } else if ("FACULTY".equalsIgnoreCase(assignedRole)) {
+                user.setBranch("CSE");
+                user.setAcademicYear("Faculty");
+                user.setSemester("Faculty");
+            }
             user = userRepository.save(user);
         } else {
-            // Re-affirm backend calculated role
-            user.setRole(assignedRole);
+            // Existing user login: cross-role guard
+            user = userOpt.get();
+            if ("FACULTY".equalsIgnoreCase(requestedRole) && !"FACULTY".equalsIgnoreCase(user.getRole())) {
+                throw new IllegalArgumentException("This account is registered as a Student. Please use the Student Portal.");
+            }
+            if ("STUDENT".equalsIgnoreCase(requestedRole) && "FACULTY".equalsIgnoreCase(user.getRole())) {
+                throw new IllegalArgumentException("This account is registered as Faculty. Please use the Faculty Portal.");
+            }
             user.setIsEmailVerified(true);
             if (optionalPassword != null && !optionalPassword.trim().isEmpty()) {
                 user.setPassword(hashPassword(optionalPassword.trim()));

@@ -15,11 +15,31 @@ import { WalkingStudentIllustration } from '../../components/Illustrations';
 const { width } = Dimensions.get('window');
 
 interface GetStartedScreenProps {
-  onGetStarted: () => void;
-  onSignIn: () => void;
+  onSelectRole: (role: 'STUDENT' | 'FACULTY', mode: 'SIGN_IN' | 'REGISTER') => void;
+  onGetStarted?: () => void;
+  onSignIn?: () => void;
 }
 
-export default function GetStartedScreen({ onGetStarted, onSignIn }: GetStartedScreenProps) {
+export default function GetStartedScreen({ onSelectRole, onGetStarted, onSignIn }: GetStartedScreenProps) {
+  const handleStudentSignIn = () => {
+    if (onSelectRole) onSelectRole('STUDENT', 'SIGN_IN');
+    else if (onSignIn) onSignIn();
+  };
+
+  const handleStudentRegister = () => {
+    if (onSelectRole) onSelectRole('STUDENT', 'REGISTER');
+    else if (onGetStarted) onGetStarted();
+  };
+
+  const handleFacultySignIn = () => {
+    if (onSelectRole) onSelectRole('FACULTY', 'SIGN_IN');
+    else if (onSignIn) onSignIn();
+  };
+
+  const handleFacultyRegister = () => {
+    if (onSelectRole) onSelectRole('FACULTY', 'REGISTER');
+    else if (onGetStarted) onGetStarted();
+  };
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -67,24 +87,58 @@ export default function GetStartedScreen({ onGetStarted, onSignIn }: GetStartedS
             </View>
           </View>
 
-          {/* Call to Actions */}
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={onGetStarted}
-            activeOpacity={0.88}
-          >
-            <Text style={styles.primaryButtonText}>Get Started Today →</Text>
-          </TouchableOpacity>
+          {/* Role-Based Authentication Entry Sections */}
+          <View style={styles.rolePortalCard}>
+            <View style={styles.roleHeaderRow}>
+              <Text style={styles.roleBadgeIcon}>🎓</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rolePortalTitle}>Student Portal</Text>
+                <Text style={styles.rolePortalSubtitle}>Open to all students • Any valid email accepted</Text>
+              </View>
+            </View>
+            <View style={styles.roleButtonGroup}>
+              <TouchableOpacity
+                style={styles.portalPrimaryBtn}
+                onPress={handleStudentSignIn}
+                activeOpacity={0.88}
+              >
+                <Text style={styles.portalPrimaryBtnText}>Student Sign In →</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.portalSecondaryBtn}
+                onPress={handleStudentRegister}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.portalSecondaryBtnText}>New Student? Register Account</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={onSignIn}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.secondaryButtonText}>
-              Already have an account? <Text style={styles.signInBold}>Sign In</Text>
-            </Text>
-          </TouchableOpacity>
+          <View style={[styles.rolePortalCard, { marginTop: 14, borderColor: Colors.primaryDark }]}>
+            <View style={styles.roleHeaderRow}>
+              <Text style={styles.roleBadgeIcon}>🏛️</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rolePortalTitle}>Faculty Portal</Text>
+                <Text style={styles.rolePortalSubtitle}>Institutional portal • @siddhartha.ac.in</Text>
+              </View>
+            </View>
+            <View style={styles.roleButtonGroup}>
+              <TouchableOpacity
+                style={[styles.portalPrimaryBtn, { backgroundColor: Colors.primaryDark }]}
+                onPress={handleFacultySignIn}
+                activeOpacity={0.88}
+              >
+                <Text style={styles.portalPrimaryBtnText}>Faculty Sign In →</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.portalSecondaryBtn}
+                onPress={handleFacultyRegister}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.portalSecondaryBtnText}>New Faculty? Register Access</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
       </ScrollView>
@@ -224,5 +278,59 @@ const styles = StyleSheet.create({
   signInBold: {
     color: Colors.primary,
     fontWeight: '800',
+  },
+  rolePortalCard: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.xl,
+    padding: 18,
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    ...Shadows.medium,
+  },
+  roleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 12,
+  },
+  roleBadgeIcon: {
+    fontSize: 28,
+  },
+  rolePortalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+  },
+  rolePortalSubtitle: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  roleButtonGroup: {
+    width: '100%',
+    gap: 8,
+  },
+  portalPrimaryBtn: {
+    width: '100%',
+    backgroundColor: Colors.primary,
+    paddingVertical: 13,
+    borderRadius: Radii.md,
+    alignItems: 'center',
+  },
+  portalPrimaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  portalSecondaryBtn: {
+    width: '100%',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  portalSecondaryBtnText: {
+    color: Colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

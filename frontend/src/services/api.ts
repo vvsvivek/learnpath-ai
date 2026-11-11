@@ -55,27 +55,27 @@ async function request(endpoint: string, options: RequestOptions = {}): Promise<
 
 export const api = {
   // 1. Authentication
-  sendOtp: async (email: string) => {
+  sendOtp: async (email: string, role?: string, mode?: string) => {
     try {
-      return await request('/api/auth/send-otp', { method: 'POST', body: { email } });
+      return await request('/api/auth/send-otp', { method: 'POST', body: { email, role, mode } });
     } catch {
       // Fallback to legacy endpoint
-      return await request('/api/main/auth/send-otp', { method: 'POST', body: { email } });
+      return await request('/api/main/auth/send-otp', { method: 'POST', body: { email, role, mode } });
     }
   },
 
-  verifyOtp: async (email: string, otp: string, username?: string, password?: string) => {
+  verifyOtp: async (email: string, otp: string, username?: string, password?: string, role?: string, mode?: string) => {
     try {
       const data = await request('/api/auth/verify-otp', {
         method: 'POST',
-        body: { email, otp, username, password },
+        body: { email, otp, username, password, role, mode },
       });
       if (data?.token) setAuthToken(data.token);
       return data;
     } catch {
       const data = await request('/api/main/auth', {
         method: 'POST',
-        body: { email, otp, username, password },
+        body: { email, otp, username, password, role, mode },
       });
       if (data?.token) setAuthToken(data.token);
       return data;

@@ -18,6 +18,8 @@ import { WalkingStudentIllustration, GoogleLogoIcon } from '../../components/Ill
 import { api } from '../../services/api';
 
 interface AuthScreenProps {
+  initialRole?: 'STUDENT' | 'FACULTY';
+  initialMode?: 'SIGN_IN' | 'REGISTER';
   onLoginComplete: (userData: any, branch?: string) => void;
   onBack: () => void;
 }
@@ -25,8 +27,14 @@ interface AuthScreenProps {
 type AuthMode = 'SIGN_IN' | 'REGISTER';
 type Step = 'EMAIL_INPUT' | 'OTP_VERIFY';
 
-export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps) {
-  const [authMode, setAuthMode] = useState<AuthMode>('SIGN_IN');
+export default function AuthScreen({
+  initialRole = 'STUDENT',
+  initialMode = 'SIGN_IN',
+  onLoginComplete,
+  onBack,
+}: AuthScreenProps) {
+  const [role, setRole] = useState<'STUDENT' | 'FACULTY'>(initialRole);
+  const [authMode, setAuthMode] = useState<AuthMode>(initialMode);
   const [step, setStep] = useState<Step>('EMAIL_INPUT');
 
   // Form Fields
@@ -51,15 +59,23 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
     return () => clearInterval(interval);
   }, [step, timerSeconds]);
 
-  // Detected Portal Role Banner based on domain (purely informational UI; enforced strictly on server)
-  const isFacultyDomain = email.trim().toLowerCase().endsWith('@siddhartha.ac.in') || email.trim().toLowerCase() === 'vivekvaranasi99@gmail.com';
-  const isEligibleStudent = email.trim().toLowerCase().endsWith('@vrsec.ac.in');
-
   const handleSendOtp = async () => {
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
       Alert.alert('Invalid Email', 'Please enter a valid academic or personal email address.');
       return;
+    }
+
+    if (role === 'FACULTY' && authMode === 'REGISTER') {
+      const isSiddhartha = cleanEmail.endsWith('@siddhartha.ac.in');
+      const isAllowlisted = cleanEmail === 'vivekvaranasi99@gmail.com';
+      if (!isSiddhartha && !isAllowlisted) {
+        Alert.alert(
+          'Unauthorized Faculty Email',
+          'Faculty registration is restricted to @siddhartha.ac.in institutional emails or authorized faculty addresses (e.g. vivekvaranasi99@gmail.com). Please switch to the Student Portal to register with this email.'
+        );
+        return;
+      }
     }
 
     if (authMode === 'REGISTER' && !fullName.trim()) {
@@ -69,7 +85,7 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
 
     try {
       setLoading(true);
-      const res = await api.sendOtp(cleanEmail);
+      const res = await api.sendOtp(cleanEmail, role, authMode === 'SIGN_IN' ? 'LOGIN' : 'REGISTER');
       if (res && res.dispatched === false) {
         throw new Error(res.message || 'Email delivery service failed to dispatch verification code. Please try again shortly.');
       }
@@ -78,7 +94,7 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
       setCanResend(false);
       Alert.alert('Verification Code Sent', `A 6-digit verification code has been dispatched to ${cleanEmail}. Check your inbox.`);
     } catch (err: any) {
-      Alert.alert('Dispatch Error', err.message || 'Failed to send verification code. Please verify your connection.');
+      Alert.alert('Error', err.message || 'Failed to send verification code. Please verify your connection.');
     } finally {
       setLoading(false);
     }
@@ -95,7 +111,14 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
 
     try {
       setLoading(true);
-      const res = await api.verifyOtp(cleanEmail, cleanOtp, fullName.trim());
+      const res = await api.verifyOtp(
+        cleanEmail,
+        cleanOtp,
+        fullName.trim(),
+        undefined,
+        role,
+        authMode === 'SIGN_IN' ? 'LOGIN' : 'REGISTER'
+      );
       if (res && res.user) {
         Alert.alert('Welcome!', `Logged in successfully as ${res.user.role}.`);
         onLoginComplete(res.user, res.user.branch || 'CSE');
@@ -166,6 +189,28 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
 
           {/* Auth Card */}
           <View style={styles.authCard}>
+
+            {/* Portal Role Selector Tabs */}
+            <View style={styles.roleSelector}>
+              <TouchableOpacity
+                style={[styles.roleTab, role === 'STUDENT' && styles.activeStudentRoleTab]}
+                onPress={() => { setRole('STUDENT'); setStep('EMAIL_INPUT'); }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.roleTabText, role === 'STUDENT' && styles.activeStudentRoleText]}>
+                  🎓 Student Portal
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.roleTab, role === 'FACULTY' && styles.activeFacultyRoleTab]}
+                onPress={() => { setRole('FACULTY'); setStep('EMAIL_INPUT'); }}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.roleTabText, role === 'FACULTY' && styles.activeFacultyRoleText]}>
+                  🏛️ Faculty Portal
+                </Text>
+              </TouchableOpacity>
+            </View>
             
             {/* Mode Switcher Tabs */}
             <View style={styles.tabContainer}>
@@ -174,7 +219,7 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
                 onPress={() => { setAuthMode('SIGN_IN'); setStep('EMAIL_INPUT'); }}
               >
                 <Text style={[styles.tabText, authMode === 'SIGN_IN' && styles.activeTabText]}>
-                  Sign In
+                  {role === 'STUDENT' ? 'Student Sign In' : 'Faculty Sign In'}
                 </Text>
               </TouchableOpacity>
 
@@ -183,24 +228,22 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
                 onPress={() => { setAuthMode('REGISTER'); setStep('EMAIL_INPUT'); }}
               >
                 <Text style={[styles.tabText, authMode === 'REGISTER' && styles.activeTabText]}>
-                  Create Account
+                  {role === 'STUDENT' ? 'Student Register' : 'Faculty Register'}
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Portal Role Indicator Banner */}
-            {isFacultyDomain && (
-              <View style={styles.facultyNotice}>
-                <Text style={styles.facultyNoticeText}>
-                  🏛️ <Text style={{ fontWeight: '800' }}>Faculty Portal Access</Text> verified for Siddhartha / Department faculty.
-                </Text>
-              </View>
-            )}
-
-            {isEligibleStudent && (
+            {/* Portal Role Notice Banner */}
+            {role === 'STUDENT' ? (
               <View style={styles.studentNotice}>
                 <Text style={styles.studentNoticeText}>
-                  🎓 <Text style={{ fontWeight: '800' }}>VRSEC Student Account</Text> eligible for departmental recommendations.
+                  🎓 <Text style={{ fontWeight: '800' }}>Student Portal:</Text> Open to all students. You may register using any valid email address (Gmail, Outlook, Yahoo, @vrsec.ac.in, etc.).
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.facultyNotice}>
+                <Text style={styles.facultyNoticeText}>
+                  🏛️ <Text style={{ fontWeight: '800' }}>Faculty Portal:</Text> Access is restricted to @siddhartha.ac.in institutional emails or authorized faculty addresses.
                 </Text>
               </View>
             )}
@@ -223,10 +266,16 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
                 )}
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Email Address</Text>
+                  <Text style={styles.inputLabel}>
+                    {role === 'STUDENT' ? 'Student Email Address' : 'Faculty Email Address'}
+                  </Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="student@vrsec.ac.in or personal email"
+                    placeholder={
+                      role === 'STUDENT'
+                        ? 'student@gmail.com or @vrsec.ac.in'
+                        : 'professor@siddhartha.ac.in'
+                    }
                     placeholderTextColor={Colors.textTertiary}
                     value={email}
                     onChangeText={setEmail}
@@ -235,7 +284,9 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
                     autoCorrect={false}
                   />
                   <Text style={styles.inputHint}>
-                    Students may register with any email. Faculty require authorized domain.
+                    {role === 'STUDENT'
+                      ? 'Students may register with any personal or college email.'
+                      : 'Faculty require @siddhartha.ac.in or authorized address.'}
                   </Text>
                 </View>
 
@@ -381,6 +432,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     ...Shadows.medium,
+  },
+  roleSelector: {
+    flexDirection: 'row',
+    backgroundColor: Colors.surfaceMuted,
+    borderRadius: Radii.lg,
+    padding: 4,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  roleTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: Radii.md,
+  },
+  roleTabText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
+  activeStudentRoleTab: {
+    backgroundColor: Colors.primary,
+    ...Shadows.small,
+  },
+  activeStudentRoleText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  activeFacultyRoleTab: {
+    backgroundColor: Colors.primaryDark,
+    ...Shadows.small,
+  },
+  activeFacultyRoleText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   tabContainer: {
     flexDirection: 'row',

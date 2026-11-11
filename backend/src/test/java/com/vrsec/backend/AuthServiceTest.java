@@ -139,165 +139,268 @@ public class AuthServiceTest {
     }
 
     // =========================================================================
-    // BASE CLASSIFICATION TESTS (Existing Baseline)
+    // PRIORITY 3 MANDATORY REGRESSION & ELIGIBILITY TEST SUITE
     // =========================================================================
 
+    // 1. Student using Gmail: Accepted
     @Test
-    void testVrsecStudentRoleClassification() {
-        String role = authService.determineRole("22vr1a0501@vrsec.ac.in");
-        assertEquals("STUDENT", role);
+    void testStudentUsingGmail_Accepted() {
+        String email = "student.john@gmail.com";
+        Map<String, Object> otpRes = authService.sendOtp(email, "STUDENT", "REGISTER");
+        assertTrue((Boolean) otpRes.get("success"));
+
+        // Retrieve generated OTP
+        EmailOtp otp = otpDb.get(otpDb.size() - 1);
+        Map<String, Object> verifyRes = authService.verifyOtp(email, otp.getOtpCode(), "John Student", null, "STUDENT", "REGISTER");
+
+        assertNotNull(verifyRes);
+        assertEquals("STUDENT", verifyRes.get("role"));
+        User user = userDb.get(email);
+        assertNotNull(user);
+        assertEquals("STUDENT", user.getRole());
+        assertNull(user.getBranch(), "New student branch must be null for onboarding");
     }
 
+    // 2. Student using @vrsec.ac.in: Accepted
     @Test
-    void testSiddharthaFacultyRoleClassification() {
-        String role = authService.determineRole("hod.cse@siddhartha.ac.in");
-        assertEquals("FACULTY", role);
+    void testStudentUsingVrsec_Accepted() {
+        String email = "24eu04199@vrsec.ac.in";
+        Map<String, Object> otpRes = authService.sendOtp(email, "STUDENT", "REGISTER");
+        assertTrue((Boolean) otpRes.get("success"));
+
+        EmailOtp otp = otpDb.get(otpDb.size() - 1);
+        Map<String, Object> verifyRes = authService.verifyOtp(email, otp.getOtpCode(), "VRSEC Student", null, "STUDENT", "REGISTER");
+
+        assertNotNull(verifyRes);
+        assertEquals("STUDENT", verifyRes.get("role"));
+        assertEquals("STUDENT", userDb.get(email).getRole());
     }
 
+    // 3. Student using Outlook: Accepted
     @Test
-    void testAuthorizedFacultyGmailRoleClassification() {
-        String role = authService.determineRole("vivekvaranasi99@gmail.com");
-        assertEquals("FACULTY", role);
+    void testStudentUsingOutlook_Accepted() {
+        String email = "learner@outlook.com";
+        Map<String, Object> otpRes = authService.sendOtp(email, "STUDENT", "REGISTER");
+        assertTrue((Boolean) otpRes.get("success"));
+
+        EmailOtp otp = otpDb.get(otpDb.size() - 1);
+        Map<String, Object> verifyRes = authService.verifyOtp(email, otp.getOtpCode(), "Outlook Learner", null, "STUDENT", "REGISTER");
+
+        assertNotNull(verifyRes);
+        assertEquals("STUDENT", verifyRes.get("role"));
+        assertEquals("STUDENT", userDb.get(email).getRole());
     }
 
+    // 4. Faculty using @siddhartha.ac.in: Accepted
     @Test
-    void testUnauthorizedDomainRejection() {
-        assertThrows(IllegalArgumentException.class, () -> authService.determineRole("attacker@gmail.com"));
-        assertThrows(IllegalArgumentException.class, () -> authService.determineRole("user@random.com"));
+    void testFacultyUsingSiddhartha_Accepted() {
+        String email = "hod.it@siddhartha.ac.in";
+        Map<String, Object> otpRes = authService.sendOtp(email, "FACULTY", "REGISTER");
+        assertTrue((Boolean) otpRes.get("success"));
+
+        EmailOtp otp = otpDb.get(otpDb.size() - 1);
+        Map<String, Object> verifyRes = authService.verifyOtp(email, otp.getOtpCode(), "Dr. HOD", null, "FACULTY", "REGISTER");
+
+        assertNotNull(verifyRes);
+        assertEquals("FACULTY", verifyRes.get("role"));
+        assertEquals("FACULTY", userDb.get(email).getRole());
     }
 
+    // 5. Faculty using vivekvaranasi99@gmail.com: Accepted
     @Test
-    void testInstitutionalEmailValidation() {
-        assertTrue(authService.isAuthorizedInstitutionalEmail("student@vrsec.ac.in"));
-        assertTrue(authService.isAuthorizedInstitutionalEmail("faculty@siddhartha.ac.in"));
-        assertTrue(authService.isAuthorizedInstitutionalEmail("vivekvaranasi99@gmail.com"));
-        assertFalse(authService.isAuthorizedInstitutionalEmail("unauthorized@yahoo.com"));
-        assertFalse(authService.isAuthorizedInstitutionalEmail("random@gmail.com"));
+    void testFacultyUsingAllowlistedGmail_Accepted() {
+        String email = "vivekvaranasi99@gmail.com";
+        Map<String, Object> otpRes = authService.sendOtp(email, "FACULTY", "REGISTER");
+        assertTrue((Boolean) otpRes.get("success"));
+
+        EmailOtp otp = otpDb.get(otpDb.size() - 1);
+        Map<String, Object> verifyRes = authService.verifyOtp(email, otp.getOtpCode(), "Prof. Vivek", null, "FACULTY", "REGISTER");
+
+        assertNotNull(verifyRes);
+        assertEquals("FACULTY", verifyRes.get("role"));
+        assertEquals("FACULTY", userDb.get(email).getRole());
     }
 
-    // =========================================================================
-    // P4 MANDATORY AUTOMATED TESTS (12 Scenarios)
-    // =========================================================================
-
-    // 1. New student registration
+    // 6. Faculty using another Gmail: Rejected
     @Test
-    void test1_NewStudentRegistration() {
-        String email = "fresh.student@vrsec.ac.in";
+    void testFacultyUsingUnauthorizedGmail_Rejected() {
+        String email = "random.teacher@gmail.com";
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            authService.sendOtp(email, "FACULTY", "REGISTER");
+        });
+        assertTrue(ex.getMessage().contains("Unauthorized faculty registration"));
+
+        // Also verify rejection at verifyOtp boundary
         EmailOtp otp = new EmailOtp();
         otp.setEmail(email);
-        otp.setOtpCode("456789");
-        otp.setPurpose("VERIFICATION");
+        otp.setOtpCode("123123");
         otp.setUsed(false);
         otp.setCreatedAt(LocalDateTime.now(fixedClock));
         otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
         otpDb.add(otp);
 
-        Map<String, Object> result = authService.verifyOtp(email, "456789", "Fresh Student", null);
-
-        assertNotNull(result);
-        assertEquals("STUDENT", result.get("role"));
-        assertEquals("mocked.jwt.token", result.get("token"));
-
-        User created = userDb.get(email);
-        assertNotNull(created);
-        assertEquals("fresh.student@vrsec.ac.in", created.getEmail());
-        assertEquals("Fresh Student", created.getUsername());
-        assertEquals("STUDENT", created.getRole());
-        assertNull(created.getBranch(), "Branch must be null for new students to trigger academic onboarding");
-        assertNull(created.getAcademicYear(), "Academic year must be null for new students");
-        assertNull(created.getSemester(), "Semester must be null for new students");
+        IllegalArgumentException verifyEx = assertThrows(IllegalArgumentException.class, () -> {
+            authService.verifyOtp(email, "123123", "Teacher", null, "FACULTY", "REGISTER");
+        });
+        assertTrue(verifyEx.getMessage().contains("Unauthorized faculty registration"));
     }
 
-    // 2. New faculty registration
+    // 7. Student attempting faculty registration: Rejected
     @Test
-    void test2_NewFacultyRegistration() {
-        String email = "new.faculty@siddhartha.ac.in";
-        EmailOtp otp = new EmailOtp();
-        otp.setEmail(email);
-        otp.setOtpCode("654321");
-        otp.setPurpose("VERIFICATION");
-        otp.setUsed(false);
-        otp.setCreatedAt(LocalDateTime.now(fixedClock));
-        otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
-        otpDb.add(otp);
+    void testStudentAttemptingFacultyRegistration_Rejected() {
+        String email = "student@vrsec.ac.in";
 
-        Map<String, Object> result = authService.verifyOtp(email, "654321", "Dr. Faculty", null);
-
-        assertNotNull(result);
-        assertEquals("FACULTY", result.get("role"));
-        assertEquals("mocked.jwt.token", result.get("token"));
-
-        User created = userDb.get(email);
-        assertNotNull(created);
-        assertEquals("new.faculty@siddhartha.ac.in", created.getEmail());
-        assertEquals("FACULTY", created.getRole());
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            authService.sendOtp(email, "FACULTY", "REGISTER");
+        });
+        assertTrue(ex.getMessage().contains("Unauthorized faculty registration"));
     }
 
-    // 3. Duplicate registration safely updates existing user
+    // 8. Duplicate email registration: Rejected
     @Test
-    void test3_DuplicateRegistrationDoesNotCreateDuplicateUser() {
-        String email = "existing.student@vrsec.ac.in";
+    void testDuplicateEmailRegistration_Rejected() {
+        String email = "duplicate.test@gmail.com";
         User existing = new User();
-        existing.setId(42L);
+        existing.setId(101L);
+        existing.setEmail(email);
+        existing.setUsername("Original User");
+        existing.setRole("STUDENT");
+        userDb.put(email, existing);
+
+        // Rejected at sendOtp in REGISTER mode
+        IllegalArgumentException exSend = assertThrows(IllegalArgumentException.class, () -> {
+            authService.sendOtp(email, "STUDENT", "REGISTER");
+        });
+        assertTrue(exSend.getMessage().contains("already exists"));
+
+        // Rejected at verifyOtp in REGISTER mode
+        EmailOtp otp = new EmailOtp();
+        otp.setEmail(email);
+        otp.setOtpCode("554433");
+        otp.setUsed(false);
+        otp.setCreatedAt(LocalDateTime.now(fixedClock));
+        otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
+        otpDb.add(otp);
+
+        IllegalArgumentException exVerify = assertThrows(IllegalArgumentException.class, () -> {
+            authService.verifyOtp(email, "554433", "New Name", null, "STUDENT", "REGISTER");
+        });
+        assertTrue(exVerify.getMessage().contains("already exists"));
+    }
+
+    // 9. Incorrect OTP: Rejected
+    @Test
+    void testIncorrectOtp_Rejected() {
+        String email = "check.wrong@gmail.com";
+        EmailOtp otp = new EmailOtp();
+        otp.setEmail(email);
+        otp.setOtpCode("888888");
+        otp.setUsed(false);
+        otp.setCreatedAt(LocalDateTime.now(fixedClock));
+        otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
+        otpDb.add(otp);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            authService.verifyOtp(email, "000000", "User", null);
+        });
+        assertTrue(ex.getMessage().contains("Invalid verification code"));
+    }
+
+    // 10. Expired OTP: Rejected
+    @Test
+    void testExpiredOtp_Rejected() {
+        String email = "expired.otp@gmail.com";
+        EmailOtp otp = new EmailOtp();
+        otp.setEmail(email);
+        otp.setOtpCode("777777");
+        otp.setUsed(false);
+        otp.setCreatedAt(LocalDateTime.now(fixedClock).minusMinutes(15));
+        otp.setExpiresAt(LocalDateTime.now(fixedClock).minusMinutes(5));
+        otpDb.add(otp);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            authService.verifyOtp(email, "777777", "User", null);
+        });
+        assertTrue(ex.getMessage().contains("expired"));
+        assertTrue(otp.isUsed(), "Expired OTP must be marked used");
+    }
+
+    // 11. Reused OTP: Rejected
+    @Test
+    void testReusedOtp_Rejected() {
+        String email = "reused.test@gmail.com";
+        EmailOtp otp = new EmailOtp();
+        otp.setEmail(email);
+        otp.setOtpCode("112211");
+        otp.setUsed(false);
+        otp.setCreatedAt(LocalDateTime.now(fixedClock));
+        otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
+        otpDb.add(otp);
+
+        // First verification succeeds
+        Map<String, Object> first = authService.verifyOtp(email, "112211", "First Attempt", null);
+        assertNotNull(first);
+        assertTrue(otp.isUsed());
+
+        // Second verification with same OTP is rejected
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
+            authService.verifyOtp(email, "112211", "Second Attempt", null);
+        });
+        assertTrue(ex.getMessage().contains("No active verification code found"));
+    }
+
+    // 12. Existing student login: Accepted and preserves role
+    @Test
+    void testExistingStudentLogin_PreservesRole() {
+        String email = "existing.learner@gmail.com";
+        User existing = new User();
+        existing.setId(201L);
         existing.setEmail(email);
         existing.setUsername("Existing Student");
         existing.setRole("STUDENT");
         existing.setBranch("CSE");
-        existing.setAcademicYear("2nd Year");
+        existing.setAcademicYear("3rd Year");
         existing.setSemester("1st Sem");
         userDb.put(email, existing);
 
         EmailOtp otp = new EmailOtp();
         otp.setEmail(email);
-        otp.setOtpCode("112233");
-        otp.setPurpose("VERIFICATION");
+        otp.setOtpCode("334455");
         otp.setUsed(false);
         otp.setCreatedAt(LocalDateTime.now(fixedClock));
         otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
         otpDb.add(otp);
 
-        int initialUserCount = userDb.size();
-        Map<String, Object> result = authService.verifyOtp(email, "112233", "Existing Student", null);
-
-        assertNotNull(result);
-        assertEquals("mocked.jwt.token", result.get("token"));
-        assertEquals(initialUserCount, userDb.size(), "User count must remain unchanged");
-        assertEquals("CSE", userDb.get(email).getBranch(), "Existing branch must be preserved");
+        Map<String, Object> res = authService.verifyOtp(email, "334455", "Existing Student", null, "STUDENT", "LOGIN");
+        assertNotNull(res);
+        assertEquals("STUDENT", res.get("role"));
+        assertEquals("CSE", userDb.get(email).getBranch(), "Branch must be preserved");
     }
 
-    // 4. Invalid email domain rejected
+    // 13. Existing faculty login: Accepted and preserves role
     @Test
-    void test4_InvalidEmailDomainRejected() {
-        String invalidEmail = "stranger@gmail.com";
+    void testExistingFacultyLogin_PreservesRole() {
+        String email = "prof.siddhartha@siddhartha.ac.in";
+        User existing = new User();
+        existing.setId(301L);
+        existing.setEmail(email);
+        existing.setUsername("Prof. Siddhartha");
+        existing.setRole("FACULTY");
+        existing.setBranch("IT");
+        userDb.put(email, existing);
 
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
-            authService.sendOtp(invalidEmail);
-        });
-
-        assertTrue(ex.getMessage().contains("Invalid institutional email"));
-        assertTrue(otpDb.isEmpty(), "No OTP should be generated for invalid domain");
-    }
-
-    // 5. Expired OTP rejection
-    @Test
-    void test5_ExpiredOtpRejectedAndMarkedUsed() {
-        String email = "student@vrsec.ac.in";
         EmailOtp otp = new EmailOtp();
         otp.setEmail(email);
-        otp.setOtpCode("998877");
-        otp.setPurpose("VERIFICATION");
+        otp.setOtpCode("998899");
         otp.setUsed(false);
-        // Created 11 minutes ago, expired 1 minute ago relative to fixed clock
-        otp.setCreatedAt(LocalDateTime.now(fixedClock).minusMinutes(11));
-        otp.setExpiresAt(LocalDateTime.now(fixedClock).minusMinutes(1));
+        otp.setCreatedAt(LocalDateTime.now(fixedClock));
+        otp.setExpiresAt(LocalDateTime.now(fixedClock).plusMinutes(10));
         otpDb.add(otp);
 
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> {
-            authService.verifyOtp(email, "998877", "Test Student", null);
-        });
-
-        assertTrue(ex.getMessage().contains("expired"));
-        assertTrue(otp.isUsed(), "Expired OTP must be marked as used in database");
+        Map<String, Object> res = authService.verifyOtp(email, "998899", "Prof. Siddhartha", null, "FACULTY", "LOGIN");
+        assertNotNull(res);
+        assertEquals("FACULTY", res.get("role"));
     }
 
     // 6. OTP resend cooldown (60 seconds)

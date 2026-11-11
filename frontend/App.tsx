@@ -17,14 +17,29 @@ type ScreenState = 'GetStarted' | 'Auth' | 'Main' | 'Settings';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenState>('GetStarted');
+  const [authRole, setAuthRole] = useState<'STUDENT' | 'FACULTY'>('STUDENT');
+  const [authMode, setAuthMode] = useState<'SIGN_IN' | 'REGISTER'>('SIGN_IN');
   const [userData, setUserData] = useState<any>(null);
   const [facultyBranch, setFacultyBranch] = useState<string>('CSE');
 
   if (currentScreen === 'GetStarted') {
     return (
       <GetStartedScreen
-        onGetStarted={() => setCurrentScreen('Auth')}
-        onSignIn={() => setCurrentScreen('Auth')}
+        onSelectRole={(role, mode) => {
+          setAuthRole(role);
+          setAuthMode(mode);
+          setCurrentScreen('Auth');
+        }}
+        onGetStarted={() => {
+          setAuthRole('STUDENT');
+          setAuthMode('REGISTER');
+          setCurrentScreen('Auth');
+        }}
+        onSignIn={() => {
+          setAuthRole('STUDENT');
+          setAuthMode('SIGN_IN');
+          setCurrentScreen('Auth');
+        }}
       />
     );
   }
@@ -32,6 +47,8 @@ export default function App() {
   if (currentScreen === 'Auth') {
     return (
       <AuthScreen
+        initialRole={authRole}
+        initialMode={authMode}
         onBack={() => setCurrentScreen('GetStarted')}
         onLoginComplete={(data: any, branch?: string) => {
           setUserData(data);

@@ -36,7 +36,9 @@ public class ApiController {
     public ResponseEntity<?> legacySendOtp(@RequestBody Map<String, String> req) {
         try {
             String email = req.get("email");
-            return ResponseEntity.ok(authService.sendOtp(email));
+            String role = req.get("role");
+            String mode = req.get("mode");
+            return ResponseEntity.ok(authService.sendOtp(email, role, mode));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));
         } catch (EmailDeliveryException e) {
@@ -54,7 +56,9 @@ public class ApiController {
             String otp = req.get("otp");
             String username = req.get("username");
             String password = req.get("password");
-            return ResponseEntity.ok(authService.verifyOtp(email, otp, username, password));
+            String role = req.get("role");
+            String mode = req.get("mode");
+            return ResponseEntity.ok(authService.verifyOtp(email, otp, username, password, role, mode));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));
         }

@@ -31,7 +31,9 @@ public class AuthController {
     public ResponseEntity<?> sendOtp(@RequestBody Map<String, String> request) {
         try {
             String email = request.get("email");
-            Map<String, Object> response = authService.sendOtp(email);
+            String role = request.get("role");
+            String mode = request.get("mode");
+            Map<String, Object> response = authService.sendOtp(email, role, mode);
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));
@@ -50,8 +52,10 @@ public class AuthController {
             String otp = request.get("otp");
             String username = request.get("username");
             String password = request.get("password");
+            String role = request.get("role");
+            String mode = request.get("mode");
 
-            Map<String, Object> result = authService.verifyOtp(email, otp, username, password);
+            Map<String, Object> result = authService.verifyOtp(email, otp, username, password, role, mode);
             return ResponseEntity.ok(result);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));

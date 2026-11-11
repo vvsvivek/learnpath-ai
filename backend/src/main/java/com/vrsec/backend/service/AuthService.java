@@ -1,6 +1,7 @@
 package com.vrsec.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vrsec.backend.exception.EmailDeliveryException;
 import com.vrsec.backend.model.EmailOtp;
 import com.vrsec.backend.model.User;
 import com.vrsec.backend.repository.EmailOtpRepository;
@@ -12,11 +13,13 @@ import org.springframework.web.client.RestTemplate;
 
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
-@Transactional(noRollbackFor = {IllegalArgumentException.class})
+@Transactional(noRollbackFor = {IllegalArgumentException.class, EmailDeliveryException.class})
 public class AuthService {
 
     @Autowired
@@ -30,6 +33,16 @@ public class AuthService {
 
     @Autowired
     private JwtService jwtService;
+
+    private Clock clock = Clock.systemDefaultZone();
+
+    public void setClock(Clock clock) {
+        this.clock = clock;
+    }
+
+    public Clock getClock() {
+        return clock;
+    }
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final RestTemplate restTemplate = new RestTemplate();
@@ -76,31 +89,62 @@ public class AuthService {
             }
         }
 
-        // Generate 6-digit cryptographic OTP
-        String otpCode = String.format("%06d", secureRandom.nextInt(1000000));
-
-        // Invalidate older unused OTPs for this email
-        List<EmailOtp> oldOtps = otpRepository.findByEmailOrderByCreatedAtDesc(cleanEmail);
-        for (EmailOtp old : oldOtps) {
-            if (!old.isUsed()) {
-                old.setUsed(true);
-                otpRepository.save(old);
+        // P2: 60-second server-side resend cooldown with concurrency protection
+        // Canonical string lock ensures simultaneous requests for the same email are serialized
+        synchronized (cleanEmail.intern()) {
+            Optional<EmailOtp> latestOtpOpt = otpRepository.findTopByEmailOrderByCreatedAtDesc(cleanEmail);
+            if (latestOtpOpt.isPresent()) {
+                EmailOtp latest = latestOtpOpt.get();
+                if (latest.getCreatedAt() != null) {
+                    long secondsElapsed = Duration.between(latest.getCreatedAt(), LocalDateTime.now(clock)).getSeconds();
+                    if (secondsElapsed >= 0 && secondsElapsed < 60) {
+                        long remaining = 60 - secondsElapsed;
+                        throw new IllegalArgumentException("Please wait " + remaining + " seconds before requesting another verification code.");
+                    }
+                }
             }
+
+            // Generate 6-digit cryptographic OTP
+            String otpCode = String.format("%06d", secureRandom.nextInt(1000000));
+
+            // Invalidate older unused OTPs for this email
+            List<EmailOtp> oldOtps = otpRepository.findByEmailOrderByCreatedAtDesc(cleanEmail);
+            for (EmailOtp old : oldOtps) {
+                if (!old.isUsed()) {
+                    old.setUsed(true);
+                    otpRepository.save(old);
+                }
+            }
+
+            // Save new OTP in database with 10-minute expiry (deterministic timestamp via Clock)
+            LocalDateTime now = LocalDateTime.now(clock);
+            EmailOtp otpEntity = new EmailOtp();
+            otpEntity.setEmail(cleanEmail);
+            otpEntity.setOtpCode(otpCode);
+            otpEntity.setPurpose("VERIFICATION");
+            otpEntity.setUsed(false);
+            otpEntity.setAttempts(0);
+            otpEntity.setCreatedAt(now);
+            otpEntity.setExpiresAt(now.plusMinutes(10));
+            otpRepository.save(otpEntity);
+
+            // Dispatch email via Brevo
+            boolean dispatched = emailService.sendOtpEmail(cleanEmail, otpCode);
+
+            // P1: Handle Brevo dispatch failure reliably without rolling back invalidation
+            if (!dispatched) {
+                otpEntity.setUsed(true);
+                otpRepository.save(otpEntity);
+                throw new EmailDeliveryException("Email delivery service failed to dispatch verification code. Please check your address or try again shortly.");
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Verification code sent to " + cleanEmail);
+            response.put("email", cleanEmail);
+            response.put("dispatched", true);
+            return response;
         }
-
-        // Save new OTP in database with 10-minute expiry
-        EmailOtp otpEntity = new EmailOtp(cleanEmail, otpCode, 10);
-        otpRepository.save(otpEntity);
-
-        // Dispatch email
-        boolean dispatched = emailService.sendOtpEmail(cleanEmail, otpCode);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Verification code sent to " + cleanEmail);
-        response.put("email", cleanEmail);
-        response.put("dispatched", dispatched);
-        return response;
     }
 
     public Map<String, Object> verifyOtp(String rawEmail, String otpCode, String providedName, String optionalPassword) {
@@ -117,7 +161,8 @@ public class AuthService {
         }
 
         EmailOtp otpEntity = otpOpt.get();
-        if (otpEntity.isExpired()) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (now.isAfter(otpEntity.getExpiresAt())) {
             otpEntity.setUsed(true);
             otpRepository.save(otpEntity);
             throw new IllegalArgumentException("Verification code has expired. Please request a new code.");
@@ -129,11 +174,7 @@ public class AuthService {
             throw new IllegalArgumentException("Too many incorrect attempts. Please request a new code.");
         }
 
-        boolean isDedicatedTestAccount = "test.student@vrsec.ac.in".equals(cleanEmail) 
-                || "22vr1a0501@vrsec.ac.in".equals(cleanEmail)
-                || "faculty.test@siddhartha.ac.in".equals(cleanEmail);
-        boolean isMatchingCode = otpEntity.getOtpCode().equals(cleanOtp) 
-                || (isDedicatedTestAccount && "123456".equals(cleanOtp));
+        boolean isMatchingCode = otpEntity.getOtpCode().equals(cleanOtp);
 
         if (!isMatchingCode) {
             otpEntity.setAttempts(otpEntity.getAttempts() + 1);
@@ -162,12 +203,8 @@ public class AuthService {
             if (optionalPassword != null && !optionalPassword.trim().isEmpty()) {
                 user.setPassword(hashPassword(optionalPassword.trim()));
             }
-            // Auto default branch/year for @vrsec.ac.in students if available
-            if (cleanEmail.endsWith("@vrsec.ac.in")) {
-                user.setBranch("CSE");
-                user.setAcademicYear("2nd Year");
-                user.setSemester("1st Sem");
-            }
+            // P3: Do NOT hardcode CSE, 2nd Year, 1st Sem for new students.
+            // Leave branch, academicYear, and semester null so new students complete onboarding on first login.
             user = userRepository.save(user);
         } else {
             // Re-affirm backend calculated role
@@ -216,11 +253,6 @@ public class AuthService {
                 user.setIsEmailVerified(true);
                 user.setAuthProvider("GOOGLE");
                 user.setCgpa(0.0);
-                if (email.endsWith("@vrsec.ac.in")) {
-                    user.setBranch("CSE");
-                    user.setAcademicYear("2nd Year");
-                    user.setSemester("1st Sem");
-                }
                 user = userRepository.save(user);
             } else {
                 user.setRole(assignedRole);

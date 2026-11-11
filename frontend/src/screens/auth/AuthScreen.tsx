@@ -69,7 +69,10 @@ export default function AuthScreen({ onLoginComplete, onBack }: AuthScreenProps)
 
     try {
       setLoading(true);
-      await api.sendOtp(cleanEmail);
+      const res = await api.sendOtp(cleanEmail);
+      if (res && res.dispatched === false) {
+        throw new Error(res.message || 'Email delivery service failed to dispatch verification code. Please try again shortly.');
+      }
       setStep('OTP_VERIFY');
       setTimerSeconds(60);
       setCanResend(false);

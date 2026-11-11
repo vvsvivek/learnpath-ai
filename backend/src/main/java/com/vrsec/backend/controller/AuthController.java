@@ -1,10 +1,12 @@
 package com.vrsec.backend.controller;
 
+import com.vrsec.backend.exception.EmailDeliveryException;
 import com.vrsec.backend.model.User;
 import com.vrsec.backend.repository.UserRepository;
 import com.vrsec.backend.service.AuthService;
 import com.vrsec.backend.service.JwtService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,6 +35,8 @@ public class AuthController {
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));
+        } catch (EmailDeliveryException e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Collections.singletonMap("error", e.getMessage()));
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(500).body(Collections.singletonMap("error", "Failed to dispatch verification code: " + e.getMessage()));

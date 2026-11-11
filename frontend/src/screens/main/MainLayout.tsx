@@ -7,8 +7,13 @@ import {
   TouchableOpacity,
   StatusBar,
   Platform,
+  Modal,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Colors, Shadows, Radii } from '../../styles/theme';
+import { api } from '../../services/api';
 import HomeScreen from './HomeScreen';
 import FacultyHomeScreen from './FacultyHomeScreen';
 import LearningPathScreen from './LearningPathScreen';
@@ -29,14 +34,50 @@ export default function MainLayout({
   onNavigateSettings,
   facultyBranch,
 }: MainLayoutProps) {
-  const email = (userData?.email || '').toLowerCase();
-  const rawRole = (userData?.role || 'STUDENT').toUpperCase();
+  const [currentUserData, setCurrentUserData] = useState(userData);
+  const email = (currentUserData?.email || '').toLowerCase();
+  const rawRole = (currentUserData?.role || 'STUDENT').toUpperCase();
 
   // STRICT BACKEND-ALIGNED ROLE CHECK:
   const isFaculty =
     rawRole === 'FACULTY' ||
     email.endsWith('@siddhartha.ac.in') ||
     email === 'vivekvaranasi99@gmail.com';
+
+  // P3: Check if required academic details are missing for students
+  const isAcademicProfileIncomplete =
+    !isFaculty && (!currentUserData?.branch || !currentUserData?.academicYear || !currentUserData?.semester);
+  const [showOnboarding, setShowOnboarding] = useState(isAcademicProfileIncomplete);
+
+  const [selectedBranch, setSelectedBranch] = useState(currentUserData?.branch || 'CSE');
+  const [selectedYear, setSelectedYear] = useState(currentUserData?.academicYear || '2nd Year');
+  const [selectedSem, setSelectedSem] = useState(currentUserData?.semester || '1st Sem');
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
+
+  const handleSaveOnboarding = async () => {
+    try {
+      setOnboardingLoading(true);
+      await api.updateProfile({
+        email: currentUserData.email,
+        branch: selectedBranch,
+        academicYear: selectedYear,
+        semester: selectedSem,
+      });
+      const updated = {
+        ...currentUserData,
+        branch: selectedBranch,
+        academicYear: selectedYear,
+        semester: selectedSem,
+      };
+      setCurrentUserData(updated);
+      setShowOnboarding(false);
+      Alert.alert('Profile Complete!', 'Your academic details have been configured.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Failed to update academic profile.');
+    } finally {
+      setOnboardingLoading(false);
+    }
+  };
 
   const [activeTab, setActiveTab] = useState<string>('Home');
   const [activeSubject, setActiveSubject] = useState('Data Structures & Algorithmic Complexity');
@@ -45,37 +86,37 @@ export default function MainLayout({
     if (isFaculty) {
       switch (activeTab) {
         case 'Courses':
-          return <FacultyDashboardScreen userData={userData} />;
+          return <FacultyDashboardScreen userData={currentUserData} />;
         case 'Chat':
-          return <ChatScreen userData={userData} activeSubject="Faculty Institutional AI Hub" />;
+          return <ChatScreen userData={currentUserData} activeSubject="Faculty Institutional AI Hub" />;
         case 'Profile':
           return (
             <ProfileScreen
-              userData={userData}
+              userData={currentUserData}
               onLogout={onLogout}
               onNavigateSettings={onNavigateSettings}
             />
           );
         case 'Home':
         default:
-          return <FacultyHomeScreen userData={userData} onNavigateTab={setActiveTab} />;
+          return <FacultyHomeScreen userData={currentUserData} onNavigateTab={setActiveTab} />;
       }
     } else {
       switch (activeTab) {
         case 'Roadmap':
           return (
             <LearningPathScreen
-              userData={userData}
+              userData={currentUserData}
               activeSubject={activeSubject}
               onSelectSubject={setActiveSubject}
             />
           );
         case 'Chat':
-          return <ChatScreen userData={userData} activeSubject={activeSubject} />;
+          return <ChatScreen userData={currentUserData} activeSubject={activeSubject} />;
         case 'Profile':
           return (
             <ProfileScreen
-              userData={userData}
+              userData={currentUserData}
               onLogout={onLogout}
               onNavigateSettings={onNavigateSettings}
             />
@@ -84,7 +125,7 @@ export default function MainLayout({
         default:
           return (
             <HomeScreen
-              userData={userData}
+              userData={currentUserData}
               onNavigate={setActiveTab}
               onSelectSubject={setActiveSubject}
             />
@@ -135,6 +176,71 @@ export default function MainLayout({
           })}
         </View>
       </View>
+
+      {/* P3: Academic Onboarding Modal (Appears only for students missing branch/year/sem) */}
+      <Modal visible={showOnboarding} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Complete Academic Profile</Text>
+            <Text style={styles.modalSubtitle}>
+              Please select your department and academic standing so we can tailor your study roadmaps and quizzes.
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 360 }}>
+              <Text style={styles.fieldLabel}>Department / Branch</Text>
+              <View style={styles.chipRow}>
+                {['CSE', 'IT', 'ECE', 'EEE', 'MECH', 'CIVIL', 'AIML', 'AIDS'].map((b) => (
+                  <TouchableOpacity
+                    key={b}
+                    style={[styles.chip, selectedBranch === b && styles.chipActive]}
+                    onPress={() => setSelectedBranch(b)}
+                  >
+                    <Text style={[styles.chipText, selectedBranch === b && styles.chipTextActive]}>{b}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Academic Year</Text>
+              <View style={styles.chipRow}>
+                {['1st Year', '2nd Year', '3rd Year', '4th Year'].map((y) => (
+                  <TouchableOpacity
+                    key={y}
+                    style={[styles.chip, selectedYear === y && styles.chipActive]}
+                    onPress={() => setSelectedYear(y)}
+                  >
+                    <Text style={[styles.chipText, selectedYear === y && styles.chipTextActive]}>{y}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.fieldLabel}>Semester</Text>
+              <View style={styles.chipRow}>
+                {['1st Sem', '2nd Sem'].map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.chip, selectedSem === s && styles.chipActive]}
+                    onPress={() => setSelectedSem(s)}
+                  >
+                    <Text style={[styles.chipText, selectedSem === s && styles.chipTextActive]}>{s}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={handleSaveOnboarding}
+              disabled={onboardingLoading}
+            >
+              {onboardingLoading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.saveButtonText}>Confirm & Start Learning</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -188,5 +294,77 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: Colors.primaryDark,
     fontWeight: '800',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.75)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radii.lg,
+    padding: 24,
+    ...Shadows.elevated,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 16,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radii.full,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  chipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  chipTextActive: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  saveButton: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 14,
+    borderRadius: Radii.md,
+    alignItems: 'center',
+    marginTop: 20,
+    ...Shadows.elevated,
+  },
+  saveButtonText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

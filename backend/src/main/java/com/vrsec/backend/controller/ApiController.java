@@ -1,10 +1,12 @@
 package com.vrsec.backend.controller;
 
+import com.vrsec.backend.exception.EmailDeliveryException;
 import com.vrsec.backend.model.*;
 import com.vrsec.backend.repository.*;
 import com.vrsec.backend.service.AuthService;
 import com.vrsec.backend.service.LearningPathService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -29,12 +31,16 @@ public class ApiController {
     // =========================================================================
     // 1. AUTH COMPATIBILITY ENDPOINTS (For legacy clients calling /api/main/auth)
     // =========================================================================
-    @Transactional
+    @Transactional(noRollbackFor = {IllegalArgumentException.class, EmailDeliveryException.class})
     @PostMapping({"/auth/send-otp", "/send-otp"})
     public ResponseEntity<?> legacySendOtp(@RequestBody Map<String, String> req) {
         try {
             String email = req.get("email");
             return ResponseEntity.ok(authService.sendOtp(email));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));
+        } catch (EmailDeliveryException e) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Collections.singletonMap("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Collections.singletonMap("error", e.getMessage()));
         }

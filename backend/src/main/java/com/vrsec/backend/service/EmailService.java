@@ -56,7 +56,7 @@ public class EmailService {
 
             String effectiveSenderEmail = (brevoSenderEmail != null && !brevoSenderEmail.trim().isEmpty())
                     ? brevoSenderEmail.trim()
-                    : "noreply@learnpath.ai";
+                    : "learnpath.platform@gmail.com";
             String effectiveSenderName = (brevoSenderName != null && !brevoSenderName.trim().isEmpty())
                     ? brevoSenderName.trim()
                     : "LearnPath AI";
@@ -82,10 +82,19 @@ public class EmailService {
 
             int code = conn.getResponseCode();
             if (code >= 200 && code < 300) {
-                System.out.println("[EMAIL SERVICE] Verification email successfully dispatched via Brevo API to recipient.");
+                try (java.io.InputStream is = conn.getInputStream()) {
+                    String respBody = new String(is.readAllBytes());
+                    System.out.println("[EMAIL SERVICE] Brevo API dispatched successfully (Status " + code + "): " + respBody);
+                }
                 return true;
             } else {
-                System.err.println("[EMAIL SERVICE] Brevo API responded with HTTP status: " + code);
+                String errorBody = "";
+                try (java.io.InputStream es = conn.getErrorStream()) {
+                    if (es != null) {
+                        errorBody = new String(es.readAllBytes());
+                    }
+                } catch (Exception ignored) {}
+                System.err.println("[EMAIL SERVICE] Brevo API responded with error HTTP status " + code + ": " + errorBody);
             }
         } catch (Exception e) {
             System.err.println("[EMAIL SERVICE] Failed to dispatch email via Brevo API: " + e.getMessage());

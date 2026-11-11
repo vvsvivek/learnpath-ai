@@ -125,6 +125,8 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
                 "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS last_evaluated_at TIMESTAMPTZ DEFAULT NOW()",
                 "ALTER TABLE topic_performance ALTER COLUMN topic DROP NOT NULL",
                 "ALTER TABLE topic_performance ALTER COLUMN accuracy DROP NOT NULL",
+                "ALTER TABLE topic_performance DROP CONSTRAINT IF EXISTS topic_performance_topic_id_fkey",
+                "ALTER TABLE topic_performance ALTER COLUMN topic_id DROP NOT NULL",
                 "UPDATE users SET role = UPPER(role) WHERE role IS NOT NULL",
                 "ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (UPPER(role) IN ('STUDENT', 'FACULTY', 'ADMIN', 'student', 'faculty', 'admin'))",
                 "INSERT INTO users (email, username, role, branch, academic_year, semester, cgpa, is_email_verified, auth_provider, password) VALUES ('22vr1a0501@vrsec.ac.in', 'Student 22VR1A0501', 'STUDENT', 'CSE', '2nd Year', '1st Sem', 8.50, TRUE, 'EMAIL', 'ef92b778bafe771e89245b89ecbc08a44a4e166c06659911881f383d4473e94f') ON CONFLICT (email) DO NOTHING",

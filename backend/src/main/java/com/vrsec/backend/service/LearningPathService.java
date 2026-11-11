@@ -337,13 +337,17 @@ public class LearningPathService {
     }
 
     private void updateTopicPerformance(User user, String courseTitle, String conceptTag, boolean isCorrect) {
+        if (user == null || user.getId() == null || conceptTag == null || conceptTag.trim().isEmpty()) {
+            return;
+        }
         try {
             TopicPerformance tp = topicPerformanceRepository
                     .findByUserIdAndCourseTitleAndConceptTag(user.getId(), courseTitle, conceptTag)
-                    .orElse(new TopicPerformance());
-            if (tp.getId() == null) {
+                    .orElse(null);
+            if (tp == null) {
+                tp = new TopicPerformance();
                 tp.setUser(user);
-                tp.setCourseTitle(courseTitle);
+                tp.setCourseTitle(courseTitle != null ? courseTitle : "General");
                 tp.setConceptTag(conceptTag);
                 tp.setTimesTested(0);
                 tp.setTimesIncorrect(0);
@@ -351,7 +355,7 @@ public class LearningPathService {
             tp.recordResult(isCorrect);
             topicPerformanceRepository.save(tp);
         } catch (Exception e) {
-            System.err.println("Error updating topic performance: " + e.getMessage());
+            System.err.println("Warning: Could not update topic performance: " + e.getMessage());
         }
     }
 

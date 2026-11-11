@@ -126,6 +126,8 @@ public class QuizController {
                 "ALTER TABLE topic_performance ADD COLUMN IF NOT EXISTS last_evaluated_at TIMESTAMPTZ DEFAULT NOW()",
                 "ALTER TABLE topic_performance ALTER COLUMN topic DROP NOT NULL",
                 "ALTER TABLE topic_performance ALTER COLUMN accuracy DROP NOT NULL",
+                "ALTER TABLE topic_performance DROP CONSTRAINT IF EXISTS topic_performance_topic_id_fkey",
+                "ALTER TABLE topic_performance ALTER COLUMN topic_id DROP NOT NULL",
 
                 // Idempotent PL/pgSQL block to ensure ID and foreign keys are BIGINT
                 "DO $$ BEGIN " +

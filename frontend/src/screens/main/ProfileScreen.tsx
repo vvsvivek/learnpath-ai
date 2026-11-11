@@ -14,12 +14,14 @@ interface ProfileScreenProps {
   userData?: any;
   onLogout: () => void;
   onNavigateSettings?: () => void;
+  onEditAcademicProfile?: () => void;
 }
 
 export default function ProfileScreen({
   userData,
   onLogout,
   onNavigateSettings,
+  onEditAcademicProfile,
 }: ProfileScreenProps) {
   const username = userData?.username || userData?.name || 'User';
   const email = (userData?.email || '').toLowerCase();
@@ -36,7 +38,11 @@ export default function ProfileScreen({
   const branch = userData?.branch || 'CSE';
   const academicYear = userData?.academicYear || '2nd Year';
   const semester = userData?.semester || '1st Sem';
-  const cgpa = userData?.cgpa !== undefined ? userData?.cgpa : 8.5;
+  const rawCgpa = userData?.cgpa;
+  const displayCgpa =
+    rawCgpa != null && !isNaN(Number(rawCgpa)) && Number(rawCgpa) > 0
+      ? Number(rawCgpa).toFixed(2)
+      : 'Not Set';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -93,7 +99,7 @@ export default function ProfileScreen({
 
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Current CGPA</Text>
-              <Text style={[styles.infoValue, { color: Colors.primaryDark, fontWeight: '900' }]}>{cgpa}</Text>
+              <Text style={[styles.infoValue, { color: Colors.primaryDark, fontWeight: '900' }]}>{displayCgpa}</Text>
             </View>
           </View>
         ) : (
@@ -120,6 +126,16 @@ export default function ProfileScreen({
         {/* Account Actions */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Account Settings</Text>
+
+          {!isFaculty && onEditAcademicProfile && (
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={onEditAcademicProfile}
+            >
+              <Text style={styles.actionItemText}>✏️ Edit Academic Profile & CGPA</Text>
+              <Text style={styles.actionArrow}>→</Text>
+            </TouchableOpacity>
+          )}
 
           {onNavigateSettings && (
             <TouchableOpacity

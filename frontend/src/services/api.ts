@@ -109,11 +109,42 @@ export const api = {
     return await request(`/api/main/dashboard?email=${encodeURIComponent(email)}`);
   },
 
-  selectCourse: async (email: string, subject: string) => {
+  getCatalogue: async (params?: {
+    email?: string;
+    branch?: string;
+    year?: string;
+    semester?: string;
+    search?: string;
+    category?: string;
+    scope?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (params?.email) q.append('email', params.email);
+    if (params?.branch) q.append('branch', params.branch);
+    if (params?.year) q.append('year', params.year);
+    if (params?.semester) q.append('semester', params.semester);
+    if (params?.search) q.append('search', params.search);
+    if (params?.category) q.append('category', params.category);
+    if (params?.scope) q.append('scope', params.scope);
+    return await request(`/api/main/catalogue?${q.toString()}`);
+  },
+
+  selectCourse: async (email: string, subject: string, approvedCourseId?: number) => {
     return await request('/api/main/course/select', {
       method: 'POST',
-      body: { email, subject },
+      body: { email, subject, approvedCourseId },
     });
+  },
+
+  requestCourse: async (email: string, title: string, reason?: string) => {
+    return await request('/api/main/course/request', {
+      method: 'POST',
+      body: { email, title, reason },
+    });
+  },
+
+  getCourseRequests: async (email?: string) => {
+    return await request(`/api/main/course/requests${email ? `?email=${encodeURIComponent(email)}` : ''}`);
   },
 
   generatePath: async (email: string, subject: string) => {

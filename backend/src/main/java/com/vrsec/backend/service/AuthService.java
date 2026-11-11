@@ -277,7 +277,7 @@ public class AuthService {
             user.setRole(assignedRole);
             user.setIsEmailVerified(true);
             user.setAuthProvider("EMAIL");
-            user.setCgpa(0.0);
+            user.setCgpa(null);
             if (optionalPassword != null && !optionalPassword.trim().isEmpty()) {
                 user.setPassword(hashPassword(optionalPassword.trim()));
             }
@@ -285,6 +285,7 @@ public class AuthService {
                 user.setBranch(null);
                 user.setAcademicYear(null);
                 user.setSemester(null);
+                user.setCgpa(null);
             } else if ("FACULTY".equalsIgnoreCase(assignedRole)) {
                 user.setBranch("CSE");
                 user.setAcademicYear("Faculty");
@@ -343,7 +344,7 @@ public class AuthService {
                 user.setRole(assignedRole);
                 user.setIsEmailVerified(true);
                 user.setAuthProvider("GOOGLE");
-                user.setCgpa(0.0);
+                user.setCgpa(null);
                 user = userRepository.save(user);
             } else {
                 user.setRole(assignedRole);

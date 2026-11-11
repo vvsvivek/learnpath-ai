@@ -22,7 +22,7 @@ public class User {
     private String branch;
     private String academicYear;
     private String semester;
-    private Double cgpa = 0.0;
+    private Double cgpa;
 
     private Boolean isEmailVerified = false;
     private String authProvider = "EMAIL"; // "EMAIL", "GOOGLE"
@@ -34,7 +34,6 @@ public class User {
     protected void onCreate() {
         if (createdAt == null) createdAt = LocalDateTime.now();
         if (updatedAt == null) updatedAt = LocalDateTime.now();
-        if (cgpa == null) cgpa = 0.0;
         if (isEmailVerified == null) isEmailVerified = false;
         if (authProvider == null) authProvider = "EMAIL";
     }

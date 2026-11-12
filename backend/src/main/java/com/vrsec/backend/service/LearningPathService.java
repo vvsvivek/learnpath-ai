@@ -22,6 +22,21 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class LearningPathService {
 
+    @Value("${groq.api.key:}")
+    private String groqApiKey;
+
+    @Value("${groq.api.url:https://api.groq.com/openai/v1}")
+    private String groqApiUrl = "https://api.groq.com/openai/v1";
+
+    @Value("${groq.model:openai/gpt-oss-120b}")
+    private String groqModel = "openai/gpt-oss-120b";
+
+    @Value("${openai.api.key:}")
+    private String openaiApiKey;
+
+    @Value("${openai.model:gpt-4o-mini}")
+    private String openaiModel = "gpt-4o-mini";
+
     @Value("${gemini.api.key:}")
     private String geminiApiKey;
 
@@ -34,6 +49,8 @@ public class LearningPathService {
     @Autowired private SuggestedCourseRepository suggestedCourseRepository;
     @Autowired private ApprovedCourseRepository approvedCourseRepository;
     @Autowired private CourseRequestRepository courseRequestRepository;
+    @Autowired(required = false) private com.vrsec.backend.service.ai.AiProviderRouter aiProviderRouter;
+    @Autowired(required = false) private com.vrsec.backend.service.ai.AiTokenBudgetManager tokenBudgetManager;
 
     @PostConstruct
     public void initCatalogue() {
@@ -718,7 +735,7 @@ public class LearningPathService {
     // 5. GEMINI API CURRICULUM & QUIZ ENGINE WITH RESILIENT FALLBACKS
     // =========================================================================
     private List<Map<String, Object>> fetchCurriculumFromGemini(String subject, User student) {
-        if (geminiApiKey == null || geminiApiKey.trim().isEmpty() || geminiApiKey.contains("YOUR_")) {
+        if (!hasConfiguredAiKey()) {
             return null;
         }
 
@@ -740,7 +757,7 @@ public class LearningPathService {
                 + "]\n"
                 + "Do NOT wrap in markdown backticks. Return raw JSON array only.";
 
-        String aiResponse = callGemini(prompt);
+        String aiResponse = callAi(prompt);
         if (aiResponse != null) {
             try {
                 int start = aiResponse.indexOf("[");
@@ -749,14 +766,14 @@ public class LearningPathService {
                     return objectMapper.readValue(aiResponse.substring(start, end + 1), new TypeReference<List<Map<String, Object>>>() {});
                 }
             } catch (Exception e) {
-                System.err.println("Gemini curriculum JSON parse error: " + e.getMessage());
+                System.err.println("Curriculum JSON parse error: " + e.getMessage());
             }
         }
         return null;
     }
 
     public List<QuizQuestion> generate10QuestionsForPhase(CoursePhase phase, User student) {
-        if (geminiApiKey != null && !geminiApiKey.trim().isEmpty() && !geminiApiKey.contains("YOUR_")) {
+        if (hasConfiguredAiKey()) {
             List<QuizQuestion> geminiQuestions = fetchQuizFromGemini(phase, student);
             if (geminiQuestions != null && geminiQuestions.size() == 10 && validateQuizQuestions(geminiQuestions)) {
                 return geminiQuestions;
@@ -801,7 +818,7 @@ public class LearningPathService {
                 + "]\n"
                 + "Do NOT wrap in markdown or backticks. Raw JSON array only.";
 
-        String aiResponse = callGemini(prompt);
+        String aiResponse = callAi(prompt);
         if (aiResponse == null) return null;
 
         try {
@@ -897,6 +914,97 @@ public class LearningPathService {
         }
 
         return false;
+    }
+
+    private boolean hasConfiguredAiKey() {
+        return (groqApiKey != null && !groqApiKey.trim().isEmpty() && !groqApiKey.contains("YOUR_")) ||
+               (openaiApiKey != null && !openaiApiKey.trim().isEmpty() && !openaiApiKey.contains("YOUR_")) ||
+               (geminiApiKey != null && !geminiApiKey.trim().isEmpty() && !geminiApiKey.contains("YOUR_"));
+    }
+
+    private String callAi(String prompt) {
+        if (aiProviderRouter != null && aiProviderRouter.getActiveProvider() != null && aiProviderRouter.getActiveProvider().isConfigured()) {
+            int maxTokens = tokenBudgetManager != null ? tokenBudgetManager.getMaxCompletionTokens() : 1024;
+            com.vrsec.backend.service.ai.AiProviderRequest req = new com.vrsec.backend.service.ai.AiProviderRequest(
+                    "You are an expert university curriculum and quiz designer.",
+                    null,
+                    Collections.singletonList(Map.of("role", "user", "content", prompt)),
+                    groqModel,
+                    maxTokens,
+                    0.7,
+                    "system-curriculum"
+            );
+            com.vrsec.backend.service.ai.AiProviderResponse resp = aiProviderRouter.executeChat(req);
+            if (resp.isSuccess() && resp.getText() != null) {
+                return resp.getText().trim();
+            }
+            return null;
+        }
+
+        if (groqApiKey != null && !groqApiKey.trim().isEmpty() && !groqApiKey.contains("YOUR_")) {
+            return callGroq(prompt);
+        }
+        if (openaiApiKey != null && !openaiApiKey.trim().isEmpty() && !openaiApiKey.contains("YOUR_")) {
+            return callOpenAi(prompt);
+        }
+        if (geminiApiKey != null && !geminiApiKey.trim().isEmpty() && !geminiApiKey.contains("YOUR_")) {
+            return callGemini(prompt);
+        }
+        return null;
+    }
+
+    private String callGroq(String prompt) {
+        if (groqApiKey == null || groqApiKey.trim().isEmpty() || groqApiKey.contains("YOUR_")) {
+            return null;
+        }
+        String effectiveModel = (groqModel != null && !groqModel.trim().isEmpty()) ? groqModel.trim() : "openai/gpt-oss-120b";
+        try {
+            String baseUrl = (groqApiUrl != null && !groqApiUrl.trim().isEmpty()) ? groqApiUrl.trim() : "https://api.groq.com/openai/v1";
+            String apiUrl = baseUrl.endsWith("/chat/completions") ? baseUrl : (baseUrl.endsWith("/") ? baseUrl + "chat/completions" : baseUrl + "/chat/completions");
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(groqApiKey.trim());
+
+            Map<String, Object> payload = Map.of(
+                    "model", effectiveModel,
+                    "messages", Collections.singletonList(Map.of("role", "user", "content", prompt)),
+                    "temperature", 0.7,
+                    "max_tokens", 4096
+            );
+
+            HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(payload), headers);
+            Map response = restTemplate.postForObject(apiUrl, request, Map.class);
+            return AiAssistantService.extractTextFromOpenAiResponse(response);
+        } catch (Exception e) {
+            System.err.println("[GROQ AI] Curriculum/quiz error (" + effectiveModel + "): " + e.getMessage());
+            return null;
+        }
+    }
+
+    private String callOpenAi(String prompt) {
+        if (openaiApiKey == null || openaiApiKey.trim().isEmpty() || openaiApiKey.contains("YOUR_")) {
+            return null;
+        }
+        String effectiveModel = (openaiModel != null && !openaiModel.trim().isEmpty()) ? openaiModel.trim() : "gpt-4o-mini";
+        try {
+            String apiUrl = "https://api.openai.com/v1/responses";
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(openaiApiKey.trim());
+
+            Map<String, Object> payload = Map.of(
+                    "model", effectiveModel,
+                    "input", Collections.singletonList(Map.of("role", "user", "content", prompt))
+            );
+
+            HttpEntity<String> request = new HttpEntity<>(objectMapper.writeValueAsString(payload), headers);
+            Map response = restTemplate.postForObject(apiUrl, request, Map.class);
+            return AiAssistantService.extractTextFromOpenAiResponse(response);
+        } catch (Exception e) {
+            System.err.println("[OPENAI AI] Curriculum/quiz error (" + effectiveModel + "): " + e.getMessage());
+            return null;
+        }
     }
 
     private String callGemini(String prompt) {

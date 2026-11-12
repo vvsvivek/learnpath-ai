@@ -59,6 +59,12 @@ public class DatabaseMigrationConfig implements BeanPostProcessor, PriorityOrder
              Statement stmt = conn.createStatement()) {
             conn.setAutoCommit(true);
 
+            String dbProduct = conn.getMetaData().getDatabaseProductName();
+            if (dbProduct != null && !dbProduct.toLowerCase().contains("postgresql")) {
+                log.info("[DB MIGRATION] Skipping PostgreSQL-specific PL/pgSQL migration on non-PostgreSQL database: {}", dbProduct);
+                return;
+            }
+
             // Step 1: Execute individual idempotent DDL/DML cleanup statements outside PL/pgSQL block
             String[] cleanupSqls = {
                 "ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check",

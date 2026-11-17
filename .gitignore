@@ -1,0 +1,65 @@
+# LearnPath AI Root .gitignore
+
+# Dependencies
+node_modules/
+*/node_modules/
+.pnp
+.pnp.js
+
+# Environment and Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+
+# Local backup directory
+.backup_original/
+
+# Java & Maven
+backend/target/
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Android
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/build/
+*.apk
+*.aab
+frontend/android/local.properties
+frontend/android/key.properties
+
+# iOS
+frontend/ios/Pods/
+frontend/ios/build/
+*.xcworkspace
+*.xcuserdatad
+
+# Metro & React Native Cache
+.metro-health-check*
+frontend/.metro-health-check*
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

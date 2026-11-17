@@ -1,0 +1,14 @@
+# GitHub Linguist Language Detection Configuration
+# Ensure Java backend and TypeScript frontend are properly identified
+
+*.java linguist-language=Java
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+*.sql linguist-language=SQL
+
+# Mark compiled bundles, assets and build artifacts as generated/vendored
+*.bundle linguist-generated=true
+*.bundle linguist-vendored=true
+frontend/android/** linguist-vendored=true
+frontend/ios/** linguist-vendored=true
+package-lock.json linguist-generated=true

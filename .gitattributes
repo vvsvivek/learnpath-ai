@@ -1,14 +1,21 @@
 # GitHub Linguist Language Detection Configuration
-# Ensure Java backend and TypeScript frontend are properly identified
+# Ensure Java Spring Boot backend and React Native TypeScript frontend are properly identified
 
+backend/src/**/*.java linguist-language=Java
 *.java linguist-language=Java
+frontend/src/**/*.ts linguist-language=TypeScript
+frontend/src/**/*.tsx linguist-language=TypeScript
 *.ts linguist-language=TypeScript
 *.tsx linguist-language=TypeScript
+database/**/*.sql linguist-language=SQL
 *.sql linguist-language=SQL
 
-# Mark compiled bundles, assets and build artifacts as generated/vendored
-*.bundle linguist-generated=true
-*.bundle linguist-vendored=true
-frontend/android/** linguist-vendored=true
-frontend/ios/** linguist-vendored=true
-package-lock.json linguist-generated=true
+# Exclude generated bundles, native wrappers, build outputs and dependency locks
+*.bundle linguist-generated
+*.bundle linguist-vendored
+frontend/android/** linguist-vendored
+frontend/ios/** linguist-vendored
+package-lock.json linguist-generated
+package-lock.json linguist-vendored
+frontend/package-lock.json linguist-generated
+frontend/package-lock.json linguist-vendored

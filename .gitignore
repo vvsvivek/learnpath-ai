@@ -28,6 +28,12 @@ backend/target/
 *.tar.gz
 *.rar
 
+# Root Showcase Media and Documents
+/*.png
+/*.jpg
+/*.jpeg
+/*.pdf
+
 # Android
 frontend/android/.gradle/
 frontend/android/app/build/

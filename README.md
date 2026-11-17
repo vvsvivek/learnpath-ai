@@ -1,10 +1,11 @@
 # LearnPath AI — AI-Powered Personalized Learning Path Generator
 
+[![Java 17](https://img.shields.io/badge/Java_17-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)](https://www.oracle.com/java/)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white)](https://spring.io/projects/spring-boot)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactnative.dev/)
-[![Spring Boot](https://img.shields.io/badge/Spring_Boot-F2F4F9?style=for-the-badge&logo=spring-boot)](https://spring.io/projects/spring-boot)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![Supabase](https://img.shields.io/badge/Supabase-181818?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
-[![Google Gemini](https://img.shields.io/badge/Google_Gemini-8E75C2?style=for-the-badge&logo=google&logoColor=white)](https://deepmind.google/technologies/gemini/)
 
 LearnPath AI is an advanced university-grade personalized learning platform designed to dynamically generate individualized course curriculums, assess concept mastery through 10-question multiple-choice quizzes, adaptively detect weak concepts, and provide institutional academic performance analytics to faculty.
 
@@ -46,7 +47,7 @@ LearnPath-AI/
 │   │   ├── controller/   # REST API Controllers (Auth, Student, Quiz, Faculty, Chat)
 │   │   ├── model/        # JPA Entities (User, Course, Phase, Quiz, TopicPerf, Chat)
 │   │   ├── repository/   # Spring Data Repositories
-│   │   └── service/      # Business Logic, Gemini AI, Email OTP, JWT
+│   │   └── service/      # Business Logic, Adaptive AI Engine, Email OTP, JWT
 │   ├── Dockerfile        # Production Dockerfile for Render
 │   └── pom.xml
 ├── database/             # Supabase PostgreSQL Database Assets
